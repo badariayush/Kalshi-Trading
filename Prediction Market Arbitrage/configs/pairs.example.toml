@@ -1,0 +1,7 @@
+[[pairs]]
+name = "Example equivalent binary market"
+category = "crypto"
+polymarket_market_id = "example-poly-market"
+kalshi_ticker = "EXAMPLE-KALSHI-TICKER"
+confidence = 0.95
+active = false

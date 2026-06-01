@@ -1,0 +1,28 @@
+[runtime]
+mode = "paper"
+book_freshness_seconds = 2.5
+min_pair_confidence = 0.90
+poll_interval_seconds = 5
+max_pairs = 25
+discovery_limit = 50
+rediscovery_interval_seconds = 300
+
+[strategy]
+min_net_edge = 0.02
+slippage_buffer = 0.005
+min_trade_size = 1
+
+[risk]
+max_notional_per_leg = 25
+max_total_exposure = 100
+max_pair_exposure = 25
+max_venue_exposure = 75
+daily_loss_limit = 25
+max_consecutive_losses = 3
+kill_switch_file = "STOP_TRADING"
+
+[kalshi]
+key_file = "../key.txt"
+
+[polymarket]
+key_file = "../polykey.txt"

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prediction-market-arbitrage"
+version = "0.1.0"
+description = "Cross-venue prediction market arbitrage bot for Polymarket and Kalshi."
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=48.0.0",
+  "requests>=2.34.0",
+  "websockets>=16.0",
+]
+
+[project.scripts]
+arb-bot = "arb_bot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

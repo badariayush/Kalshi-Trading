@@ -1,0 +1,276 @@
+PREDICTION MARKET ARBITRAGE BOT - BEGINNER OPERATOR INSTRUCTIONS
+
+These instructions are written for someone who is not technical. You should be
+able to copy and paste each command into Terminal.
+
+Important: the bot is paper-first. The intended safe testing mode is to connect
+to real Kalshi and Polymarket market data, watch real order books, and record
+the trades the bot would have entered without sending real orders. Live trading
+is intentionally blocked until both APIs have been validated.
+
+
+STEP 1 - Open Terminal and go to the bot folder
+
+Copy and paste:
+
+cd "/Users/ayushbadari/Documents/Github/Kalshi Trading/Prediction Market Arbitrage"
+
+
+STEP 2 - Turn on the bot's Python environment
+
+Copy and paste:
+
+source arbitrage/bin/activate
+
+Then confirm it worked:
+
+which python
+
+You should see this:
+
+/Users/ayushbadari/Documents/Github/Kalshi Trading/Prediction Market Arbitrage/arbitrage/bin/python
+
+If you see that path, the environment is active.
+
+
+STEP 3 - Confirm both API key files exist
+
+The Kalshi key file is:
+
+/Users/ayushbadari/Documents/Github/Kalshi Trading/key.txt
+
+The Polymarket key file is:
+
+/Users/ayushbadari/Documents/Github/Kalshi Trading/polykey.txt
+
+Copy and paste this command. It checks that both files exist without printing
+the secret keys:
+
+ls -l "../key.txt" "../polykey.txt"
+
+You should see two lines, one for key.txt and one for polykey.txt.
+
+
+STEP 4 - Confirm the API keys will not be pushed to GitHub
+
+This is very important. Copy and paste:
+
+cd "/Users/ayushbadari/Documents/Github/Kalshi Trading"
+git check-ignore -v key.txt polykey.txt
+
+You should see output that mentions:
+
+.gitignore
+key.txt
+polykey.txt
+
+If either key does not appear, stop before committing or pushing anything.
+
+Go back to the bot folder:
+
+cd "/Users/ayushbadari/Documents/Github/Kalshi Trading/Prediction Market Arbitrage"
+
+
+STEP 5 - Review the bot config
+
+The example config is here:
+
+configs/config.example.toml
+
+It points to the local API key files like this:
+
+Kalshi:
+../key.txt
+
+Polymarket:
+../polykey.txt
+
+Do not paste private API keys directly into config files. Keep the keys in
+key.txt and polykey.txt.
+
+Current safe defaults:
+
+- mode = paper
+- minimum net edge = 0.02
+- slippage buffer = 0.005
+- book freshness limit = 2.5 seconds
+- minimum pair confidence = 0.90
+- live trading is not enabled yet
+
+
+STEP 6 - Validate the local bot code
+
+Copy and paste:
+
+PYTHONPATH=src python -m unittest discover -s tests
+
+You want the final result to say:
+
+OK
+
+If it says FAILED or ERROR, do not run the bot until the issue is fixed.
+
+
+STEP 7 - Run the local math demo
+
+This command is only a quick math check. It does not contact Kalshi or
+Polymarket and it is not the real paper-trading mode.
+
+Copy and paste:
+
+PYTHONPATH=src python -m arb_bot.cli demo
+
+Expected output should look like:
+
+polymarket_yes__kalshi_no: size=12 net_edge=0.025 expected_profit=0.300
+
+That means the local calculation found a sample situation where buying one YES
+side and the opposite NO side costs less than $1.00.
+
+
+STEP 8 - Understand the real paper-trading mode
+
+The real development mode should use live market data.
+
+The live-data paper mode:
+
+- connect to Kalshi and Polymarket normally
+- listen to live order books and WebSockets
+- find real market pairs
+- calculate real entry prices from the order books
+- record the market pair, entry prices, size, expected profit, and timestamp
+- not send an order to either exchange
+- keep each paper position open until the markets resolve
+- generate a report after resolution showing what would have happened
+
+Because this arbitrage strategy does not use take-profit or stop-loss exits, the
+bot usually cannot know the final result immediately. It needs settlement data.
+Short-duration crypto markets are useful for testing because they resolve often.
+
+To discover real Bitcoin markets and auto-pairs without entering paper
+positions, copy and paste:
+
+PYTHONPATH=src python -m arb_bot.cli discover --config configs/config.example.toml --db data/discovery_bitcoin.sqlite3 --query bitcoin --limit 25 --fresh-db
+
+To run the live-data paper bot for 10 minutes, copy and paste:
+
+PYTHONPATH=src python -m arb_bot.cli paper --config configs/config.example.toml --db "data/session_$(date +%Y%m%d_%H%M%S).sqlite3" --query bitcoin --max-seconds 600 --fresh-db
+
+To run a short 60-second test instead:
+
+PYTHONPATH=src python -m arb_bot.cli paper --config configs/config.example.toml --db "data/session_$(date +%Y%m%d_%H%M%S).sqlite3" --query bitcoin --max-seconds 60 --fresh-db
+
+If there are no equivalent Polymarket/Kalshi pairs, the bot will still record
+markets discovered and WebSocket health, but it will not open paper positions.
+
+
+STEP 9 - Run a report
+
+Copy and paste:
+
+PYTHONPATH=src python -m arb_bot.cli report
+
+If no database has been created yet, this is normal:
+
+No database found at data/arbitrage.sqlite3
+
+Later, when the bot has stored paper-trading records, run:
+
+PYTHONPATH=src python -m arb_bot.cli report --db data/arbitrage.sqlite3
+
+To report on the newest session database, copy and paste:
+
+PYTHONPATH=src python -m arb_bot.cli report --db "$(ls -t data/session_*.sqlite3 | head -1)"
+
+
+STEP 10 - API validation before live-data paper trading and live trading
+
+Before the bot can safely run against real live markets, both APIs need to be
+validated. This does not mean live trading. It means checking that the bot can
+read real market data correctly before it ever sends orders.
+
+Read this file:
+
+docs/api_verification.md
+
+For Kalshi, validate:
+
+- the key.txt file can authenticate successfully
+- market lookup works
+- BTC and other short-duration crypto markets can be discovered, if available
+- order book depth can be fetched
+- WebSocket updates work
+- timestamps are precise enough
+- settlement/resolution status can be checked later for reports
+- fees are understood
+- order types are known
+- partial fills are reported clearly
+- cancel behavior is understood
+- rate limits are known
+
+For Polymarket, validate:
+
+- the polykey.txt file can authenticate successfully, if private endpoints are needed
+- market lookup works
+- BTC and other short-duration crypto markets can be discovered, if available
+- order book depth can be fetched
+- WebSocket updates work
+- timestamps are precise enough
+- settlement/resolution status can be checked later for reports
+- fees are understood
+- order types are known
+- partial fills are reported clearly
+- cancel behavior is understood
+- rate limits are known
+
+Do not enable live market paper mode until market data validation passes. Do not
+enable live trading until both market data and order execution validation pass.
+
+
+STEP 11 - What works right now
+
+Working now:
+
+- local tests
+- local CLI demo
+- live market discovery
+- live-data paper runner
+- WebSocket connection/reconnect logging
+- core arbitrage detection
+- depth-aware sizing
+- risk cap checks
+- paper executor object
+- SQLite schema/helper
+- basic report command
+
+Not live yet:
+
+- real order placement
+- live partial-fill reconciliation
+- automatic settlement resolution for paper positions
+
+
+STEP 12 - Normal copy/paste startup sequence
+
+Use this sequence when starting from a fresh Terminal:
+
+cd "/Users/ayushbadari/Documents/Github/Kalshi Trading/Prediction Market Arbitrage"
+source arbitrage/bin/activate
+ls -l "../key.txt" "../polykey.txt"
+PYTHONPATH=src python -m unittest discover -s tests
+PYTHONPATH=src python -m arb_bot.cli demo
+PYTHONPATH=src python -m arb_bot.cli discover --config configs/config.example.toml --db data/discovery_bitcoin.sqlite3 --query bitcoin --limit 25 --fresh-db
+PYTHONPATH=src python -m arb_bot.cli paper --config configs/config.example.toml --db "data/session_$(date +%Y%m%d_%H%M%S).sqlite3" --query bitcoin --max-seconds 60 --fresh-db
+PYTHONPATH=src python -m arb_bot.cli report
+
+
+STEP 13 - Before committing or pushing to GitHub
+
+Always run this first:
+
+cd "/Users/ayushbadari/Documents/Github/Kalshi Trading"
+git check-ignore -v key.txt polykey.txt
+git status --short --ignored
+
+Make sure key.txt and polykey.txt appear as ignored files. They should not be
+staged, committed, or pushed.

@@ -1,0 +1,30 @@
+# Secrets
+key.txt
+polykey.txt
+secrets/
+*.key
+*.pem
+.env
+.env.*
+
+# Python virtualenvs and caches
+.venv/
+arbitrage/
+Prediction Market Arbitrage/arbitrage/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local runtime artifacts
+*.sqlite
+*.sqlite3
+data/
+logs/
+reports/
+
+# macOS
+.DS_Store
