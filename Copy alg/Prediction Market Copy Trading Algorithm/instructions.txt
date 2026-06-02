@@ -1,0 +1,147 @@
+Kalshi Virtual Trader - Instructions
+
+Project folder:
+/Users/ayushbadari/Documents/GitHub/Kalshi Trading/Copy alg/Prediction Market Copy Trading Algorithm
+
+These commands are written for the Mac terminal.
+
+1. Go into the project
+
+```bash
+cd "/Users/ayushbadari/Documents/GitHub/Kalshi Trading/Copy alg/Prediction Market Copy Trading Algorithm"
+```
+
+2. Activate the venv
+
+The venv is one folder up and is named `Copy_alg`.
+
+```bash
+source ../Copy_alg/bin/activate
+```
+
+You should now see something like `(Copy_alg)` in your terminal prompt.
+
+3. Install or update dependencies
+
+Run this after activating the venv, especially after code changes.
+
+```bash
+python -m pip install -e .
+```
+
+4. Run tests
+
+```bash
+python -m unittest discover -v
+```
+
+5. Create the runs folder
+
+Do this once. It is safe to run again.
+
+```bash
+mkdir -p runs
+```
+
+6. Run live market-data mode with a fresh DB
+
+This watches real Kalshi market data but still does not place real trades.
+
+First set your credentials:
+
+```bash
+export KALSHI_ENV=prod
+export KALSHI_API_KEY_ID=your_real_key_id
+export KALSHI_PRIVATE_KEY_PATH="/path/to/your/kalshi_private_key.pem"
+```
+
+Then run with a unique DB file:
+
+```bash
+python -m kalshi_algo.cli run-demo-trader --config config/default.toml --db "runs/session_$(date +%Y%m%d_%H%M%S).db" --drain-on-interrupt
+```
+
+This prevents old trades from mixing into new reports.
+If Kalshi closes the websocket or your network drops, the runner reconnects automatically with backoff. Open virtual positions stay open across reconnects.
+
+7. Stop the live runner
+
+The recommended run command uses `--drain-on-interrupt`.
+
+With that flag:
+- First `Ctrl+C`: stop opening new positions and wait for open positions to hit their normal stop/take-profit.
+- Second `Ctrl+C`: force-liquidate remaining open positions.
+
+Without `--drain-on-interrupt`, `Ctrl+C` force-liquidates immediately.
+
+8. Run for a fixed amount of time
+
+Force-liquidate open virtual positions after 10 minutes:
+
+```bash
+python -m kalshi_algo.cli run-demo-trader --config config/default.toml --db "runs/session_$(date +%Y%m%d_%H%M%S).db" --max-seconds 600
+```
+
+Stop entering after 10 minutes, then wait for open positions to exit naturally:
+
+```bash
+python -m kalshi_algo.cli run-demo-trader --config config/default.toml --db "runs/session_$(date +%Y%m%d_%H%M%S).db" --max-seconds 600 --drain-on-timeout
+```
+
+You can combine timeout draining with interrupt draining:
+
+```bash
+python -m kalshi_algo.cli run-demo-trader --config config/default.toml --db "runs/session_$(date +%Y%m%d_%H%M%S).db" --max-seconds 600 --drain-on-timeout --drain-on-interrupt
+```
+
+9. Generate a report
+
+Use the same DB path that you used for the run.
+
+Example:
+
+```bash
+python -m kalshi_algo.cli generate-report --config config/default.toml --db runs/session_YYYYMMDD_HHMMSS.db
+```
+
+Report the most recent session automatically:
+
+```bash
+python -m kalshi_algo.cli generate-report --config config/default.toml --db "$(ls -t runs/session_*.db | head -1)"
+```
+
+10. Reuse `session.db` only when intentional
+
+For a clean `session.db`, delete old data before running:
+
+```bash
+python -m kalshi_algo.cli run-demo-trader --config config/default.toml --db session.db --fresh-db
+```
+
+To intentionally continue appending to an existing DB:
+
+```bash
+python -m kalshi_algo.cli run-demo-trader --config config/default.toml --db session.db --append-db
+```
+
+Without `--fresh-db` or `--append-db`, the live runner refuses to append to a DB that already has events.
+
+11. Run replay mode
+
+Use this to test the algorithm on a replay file.
+
+```bash
+python -m kalshi_algo.cli replay-session --config config/default.toml --db "runs/replay_$(date +%Y%m%d_%H%M%S).db" --input /path/to/replay.jsonl
+```
+
+12. Leave the venv
+
+```bash
+deactivate
+```
+
+Notes
+- Activate `../Copy_alg` before running commands.
+- Prefer a new DB under `runs/` for every live run.
+- Use the exact same DB path for the report that you used for the run.
+- The algorithm is still virtual-only; it does not place real orders.

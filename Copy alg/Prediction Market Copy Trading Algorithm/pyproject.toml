@@ -1,0 +1,26 @@
+[project]
+name = "kalshi-virtual-trader"
+version = "0.1.0"
+description = "Event-driven Kalshi strategy engine with virtual execution."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=45.0",
+  "websockets>=15.0",
+]
+
+[project.scripts]
+run-demo-trader = "kalshi_algo.cli:run_demo_trader_main"
+replay-session = "kalshi_algo.cli:replay_session_main"
+backfill-markets = "kalshi_algo.cli:backfill_markets_main"
+generate-report = "kalshi_algo.cli:generate_report_main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
