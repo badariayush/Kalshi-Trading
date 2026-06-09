@@ -8,6 +8,8 @@ secrets/
 .env.*
 
 # Python virtualenvs and caches
+*.egg-info/
+Market Making/marketmaking/
 .venv/
 arbitrage/
 Prediction Market Arbitrage/arbitrage/

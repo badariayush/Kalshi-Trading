@@ -1,0 +1,26 @@
+[kalshi]
+environment = "production"
+rest_url = "https://external-api.kalshi.com/trade-api/v2"
+ws_url = "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
+series_ticker = "KXBTC15M"
+discovery_limit = 4
+
+[runtime]
+mode = "paper"
+quote_refresh_seconds = 1.0
+heartbeat_seconds = 10.0
+book_stale_seconds = 5.0
+reconnect_initial_delay_seconds = 1.0
+reconnect_max_delay_seconds = 30.0
+kill_switch_file = "STOP_TRADING"
+
+[strategy]
+quote_size = 1
+min_spread = "0.04"
+min_price = "0.01"
+max_price = "0.99"
+inventory_skew = "0.05"
+requote_threshold = "0.01"
+
+[risk]
+max_abs_inventory = 3
