@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory owns durable audit logging, replay data, and reporting. It captures every signal, risk decision, true-arbitrage evaluation, partial-hedge evaluation, order, fill, feed-health event, and settlement outcome. It does not make trading decisions.
+This directory owns durable audit logging and reporting. It captures every signal, risk decision, true-arbitrage evaluation, partial-hedge evaluation, order, fill, feed-health event, and settlement outcome. It does not make trading decisions.
 
 ## Edit Here vs Elsewhere
 
@@ -42,11 +42,11 @@ Required outcome labels:
 
 ## Common Mistakes
 
-- Audit JSONL must redact sensitive keys before writing, including nested `api_key`, `private_key`, `secret`, `signature`, `password`, and `token` fields. Redaction belongs at the log boundary so replay artifacts are safe by default.
+- Audit JSONL must redact sensitive keys before writing, including nested `api_key`, `private_key`, `secret`, `signature`, `password`, and `token` fields. Redaction belongs at the log boundary so shared artifacts are safe by default.
 - SQLite audit storage must use the same redaction path as JSONL before persisting records. Do not store raw event payloads in side columns unless those columns are also redacted.
 - SQLite connections should be explicitly closed after initialization, append, and read operations; transaction context alone is not a connection close.
-- The `report` CLI reads SQLite audit records and should flag `ExecutionFailed` as `status=error`, unhealthy feed events as `status=warning`, positive closed-position P&L as `status=profit`, negative closed-position P&L as `status=loss`, and no closed positions as `status=no_trades`.
-- The `live-data` CLI should write raw provider-message audit events plus paired `FeedHealthEvaluated` records. It is expected to report `status=no_trades` when no paper position closes; that is healthy for data-only live audits as long as `feed_unhealthy_events=0` and `execution_failures=0`.
+- The `report` CLI reads only live-data SQLite audit records. It should flag `ExecutionFailed` as `status=error`, unhealthy feed events as `status=warning`, and healthy live-data captures without execution as `status=no_trades`.
+- The `live-data` CLI should write raw provider-message audit events plus paired `FeedHealthEvaluated` records. It is expected to report `status=no_trades`; that is healthy for live-data audits as long as `feed_unhealthy_events=0` and `execution_failures=0`.
 
 ## Debugging Playbook
 

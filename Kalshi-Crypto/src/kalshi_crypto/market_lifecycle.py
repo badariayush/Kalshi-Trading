@@ -6,7 +6,7 @@ from kalshi_crypto.events import AuditEvent
 
 
 @dataclass(frozen=True, slots=True)
-class RawKalshiMarketReplay:
+class RawKalshiMarketMessage:
     market_ticker: str
     series_ticker: str
     underlying: str
@@ -36,13 +36,13 @@ class RawKalshiMarketReplay:
 
 
 def lifecycle_events_from_market(
-    market: RawKalshiMarketReplay,
+    market: RawKalshiMarketMessage,
 ) -> tuple[AuditEvent, ...]:
     discovered = AuditEvent.create(
         event_type="WindowDiscovered",
         worker="market_monitor",
         payload=_base_payload(market),
-        causality_id="data-only-replay",
+        causality_id="live-market",
         timestamp_ms=market.received_timestamp_ms,
     )
     status = market.lifecycle_status.strip().lower()
@@ -77,7 +77,7 @@ def lifecycle_events_from_market(
 def _child_event(
     event_type: str,
     parent: AuditEvent,
-    market: RawKalshiMarketReplay,
+    market: RawKalshiMarketMessage,
     extra_payload: dict[str, object],
 ) -> AuditEvent:
     payload = _base_payload(market)
@@ -91,7 +91,7 @@ def _child_event(
     )
 
 
-def _base_payload(market: RawKalshiMarketReplay) -> dict[str, object]:
+def _base_payload(market: RawKalshiMarketMessage) -> dict[str, object]:
     return {
         "market_ticker": market.market_ticker,
         "series_ticker": market.series_ticker,

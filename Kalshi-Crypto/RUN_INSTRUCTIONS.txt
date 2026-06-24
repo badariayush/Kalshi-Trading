@@ -1,161 +1,117 @@
-Kalshi Crypto Paper Algorithm Run Instructions
-==============================================
+Kalshi Crypto Live-Data Run Instructions
+========================================
 
 Safety boundary
 ---------------
-- Live data readiness is enabled in configs/paper.example.toml.
+- Only live WebSocket data runs are operator-supported.
 - Real account order submission is disabled: order_api.allow_order_submission = false.
-- Do not put secrets in this file.
-- Do not change configs/paper.example.toml to allow_order_submission = true.
+- Do not put API keys, private keys, or secrets in this repo.
+- Stop immediately if any command prints order_submission=enabled.
+
+Current live-only boundary
+--------------------------
+- The CLI exposes live-data capture/reporting only.
+- The report command only accepts audit databases produced by live-data.
+- The live-data command requires an actual Kalshi market ticker and Kalshi
+  WebSocket auth environment variables.
+- The program does not submit real orders and does not print simulated fills,
+  sells, or profit. The only simulated action is a terminal/audit line for a
+  would-place order, and only after live Kalshi and live Coinbase data are seen.
 
 From the project root
 ---------------------
-cd "/Users/ayushbadari/Documents/GitHub/Kalshi Trading"
+cd "/Users/ayushbadari/Documents/GitHub/Kalshi Trading/Kalshi-Crypto"
 
-1. Run all automated checks
----------------------------
+1. Run automated checks
+-----------------------
 PYTHONPATH=src python3 -m unittest discover -s tests
 
-Stop if this fails. Inspect the failing test before running any paper checks.
+Stop if this fails.
 
-2. Check config and live-readiness state
----------------------------------------
-PYTHONPATH=src python3 -m kalshi_crypto.cli doctor --config configs/paper.example.toml
+2. Export Kalshi WebSocket credentials
+--------------------------------------
+Export these in your shell. Do not save them in any project file.
 
-PYTHONPATH=src python3 -m kalshi_crypto.cli doctor-live-data --config configs/paper.example.toml
+export KALSHI_KEY_ID="your_key_id"
+export KALSHI_PRIVATE_KEY_PEM='-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----'
 
-Expected live-readiness lines:
+3. Confirm live-readiness state
+-------------------------------
+PYTHONPATH=src python3 -m kalshi_crypto.cli doctor-live-data --config configs/live.example.toml
+
+Expected lines:
 live_network=enabled
 order_api=enabled
 order_submission=disabled
 kalshi_ws_url=wss://external-api-ws.kalshi.com/trade-api/ws/v2
+coinbase_ws_url=wss://advanced-trade-ws.coinbase.com
 
-Stop if order_submission is enabled.
+4. Run the live-data program for BTC 15m and ETH 15m
+----------------------------------------------------
+The exact Kalshi market tickers change every 15 minutes. Before running, set
+these two variables to the currently open Kalshi BTC 15m and ETH 15m market
+tickers from Kalshi:
 
-3. Run live-data audit checks and reports
------------------------------------------
-Local provider-message audit, no network:
-PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/paper.example.toml --input-file configs/live.messages.example.jsonl --output-file /private/tmp/kalshi-live-message-capture.jsonl --audit-db /private/tmp/kalshi-live-message-check.sqlite3 --max-seconds 10
+export BTC_15M_KALSHI_TICKER="replace_with_current_btc_15m_kalshi_market_ticker"
+export ETH_15M_KALSHI_TICKER="replace_with_current_eth_15m_kalshi_market_ticker"
 
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-live-message-check.sqlite3
+Run BTC 15m only:
 
-Expected live-data lines:
-network=not_attempted
+PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$BTC_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-btc-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-btc-15m-live.sqlite3 --max-seconds 600
+
+Run ETH 15m only:
+
+PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$ETH_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-eth-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-eth-15m-live.sqlite3 --max-seconds 600
+
+Run BTC 15m and ETH 15m together:
+
+PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$BTC_15M_KALSHI_TICKER" --kalshi-market-ticker "$ETH_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-btc-eth-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-btc-eth-15m-live.sqlite3 --max-seconds 600
+
+Expected lines:
+network=attempted
 execution=not_attempted
 order_submission=disabled
-raw_messages=2
+kalshi_messages greater than 0
+coinbase_messages greater than 0
 feed_unhealthy_events=0
+simulated_orders=1 when a live Kalshi ask and live Coinbase price were both observed
 
-The live-data report will usually show status=no_trades because this command
-audits market-data messages only. Stop if it shows status=error,
-feed_unhealthy_events greater than 0, or execution_failures greater than 0.
+Stop if:
+- the command errors
+- order_submission is enabled
+- kalshi_messages is 0
+- coinbase_messages is 0
+- feed_unhealthy_events is greater than 0
 
-Optional real WebSocket capture:
-Set KALSHI_KEY_ID and KALSHI_PRIVATE_KEY_PEM in your shell. Do not store them
-in the repo. Then run:
+If a simulated order can be formed from the live feeds, the terminal prints one
+line like:
 
-PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/paper.example.toml --kalshi-market-ticker <KALSHI_MARKET_TICKER> --output-file /private/tmp/kalshi-live-network-capture.jsonl --audit-db /private/tmp/kalshi-live-network-check.sqlite3 --max-seconds 600
+simulated_order_placed=market_ticker=<KALSHI_MARKET_TICKER> side=yes price=<LIVE_KALSHI_PRICE> quantity=1 coinbase_product_id=<BTC-USD_OR_ETH-USD> coinbase_price=<LIVE_COINBASE_PRICE> source=live_feeds execution=simulated_print_only order_submission=disabled
 
-If you do not pass --kalshi-market-ticker, the command still captures Coinbase
-public market data. Kalshi WebSocket market data requires authenticated
-KALSHI-ACCESS headers, so Kalshi capture needs the two environment variables.
-After capture, run report first. Only feed the capture into paper if the report
-has feed_unhealthy_events=0 and execution_failures=0.
+That line is not a real order, not a fill, and not a profit/loss result.
 
-4. Run replay checks and reports
---------------------------------
-Order book replay:
-PYTHONPATH=src python3 -m kalshi_crypto.cli data-only --config configs/paper.example.toml --replay-file configs/replay.orderbook.example.jsonl --audit-db /private/tmp/kalshi-orderbook-check.sqlite3
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-orderbook-check.sqlite3
-
-Market lifecycle replay:
-PYTHONPATH=src python3 -m kalshi_crypto.cli data-only --config configs/paper.example.toml --replay-file configs/replay.market.example.jsonl --audit-db /private/tmp/kalshi-market-check.sqlite3
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-market-check.sqlite3
-
-CF Benchmark replay:
-PYTHONPATH=src python3 -m kalshi_crypto.cli data-only --config configs/paper.example.toml --replay-file configs/replay.cf.example.jsonl --audit-db /private/tmp/kalshi-cf-check.sqlite3
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-cf-check.sqlite3
-
-Stop if any report shows:
-- status=error
-- status=loss
-- execution_failures greater than 0
-- feed_unhealthy_events greater than 0
-
-5. Paper execution check
-------------------------
-PYTHONPATH=src python3 -m unittest tests/test_paper_execution.py
-
-This confirms the replacement for real order submission:
-- order placed ... (paper)
-- order filled ... (paper)
-- order sold ... profit/loss ... (paper)
-- fee-inclusive P&L events are emitted.
-
-6. Run the paper algorithm and report
--------------------------------------
-PYTHONPATH=src python3 -m kalshi_crypto.cli paper --config configs/paper.example.toml --audit-db /private/tmp/kalshi-paper-run.sqlite3 --max-seconds 600
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-paper-run.sqlite3
-
-Expected paper report lines:
-status=profit
-execution_failures=0
-feed_unhealthy_events=0
-closed_positions=1
-profitable_positions=1
-total_realized_pnl=1.35
-
-Stop if the report shows status=error or status=loss.
-
-7. Run the paper algorithm from live-shaped messages
----------------------------------------------------
-This feeds Kalshi/Coinbase WebSocket-shaped messages into the same worker chain:
-market monitor, signal, entry risk, paper execution, audit, and report.
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli paper --config configs/paper.example.toml --live-input-file configs/live.paper.example.jsonl --audit-db /private/tmp/kalshi-paper-live-message-run.sqlite3 --max-seconds 600
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-paper-live-message-run.sqlite3
-
-Expected report lines:
-status=profit
-execution_failures=0
-feed_unhealthy_events=0
-closed_positions=1
-profitable_positions=1
-total_realized_pnl=1.35
-
-Stop if the report shows status=error or status=loss.
-
-If your real live capture includes a Kalshi market_lifecycle_v2 message, a
-Kalshi orderbook/ticker message, and at least three Coinbase ticker buckets, you
-can run the same command with the captured file:
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli paper --config configs/paper.example.toml --live-input-file /private/tmp/kalshi-live-network-capture.jsonl --audit-db /private/tmp/kalshi-paper-real-capture-run.sqlite3 --max-seconds 600
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-paper-real-capture-run.sqlite3
-
-8. Repeated validation loop
+5. Run the live-data report
 ---------------------------
-Run this sequence at least three times after code changes:
+BTC 15m report:
 
-PYTHONPATH=src python3 -m unittest discover -s tests
-PYTHONPATH=src python3 -m kalshi_crypto.cli doctor-live-data --config configs/paper.example.toml
-PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/paper.example.toml --input-file configs/live.messages.example.jsonl --audit-db /private/tmp/kalshi-loop-live.sqlite3 --max-seconds 10
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-loop-live.sqlite3
-PYTHONPATH=src python3 -m kalshi_crypto.cli paper --config configs/paper.example.toml --audit-db /private/tmp/kalshi-loop-check.sqlite3 --max-seconds 600
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-loop-check.sqlite3
-PYTHONPATH=src python3 -m kalshi_crypto.cli paper --config configs/paper.example.toml --live-input-file configs/live.paper.example.jsonl --audit-db /private/tmp/kalshi-loop-live-paper-check.sqlite3 --max-seconds 600
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-loop-live-paper-check.sqlite3
+PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-btc-15m-live.sqlite3
 
-Current important limitation
-----------------------------
-The live-data command audits Kalshi/Coinbase WebSocket-shaped messages and can
-attempt a real WebSocket capture when credentials are supplied. The paper
-command can run from either the deterministic fixture or a local provider-message
-file. The remaining product step is selecting current Kalshi market tickers
-automatically and continuously feeding captured live WebSocket data into the
-paper algorithm loop, while keeping real account order submission disabled.
+ETH 15m report:
+
+PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-eth-15m-live.sqlite3
+
+BTC 15m and ETH 15m combined report:
+
+PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-btc-eth-15m-live.sqlite3
+
+Expected live-data report lines:
+status=no_trades
+feed_unhealthy_events=0
+execution_failures=0
+simulated_orders matches the number of printed simulated_order_placed lines
+
+The report is expected to show no_trades because this product currently captures
+and audits live market data only. Real account execution, simulated fills, and
+simulated profit/loss are not part of the live-only run surface.

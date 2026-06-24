@@ -3,14 +3,14 @@ from __future__ import annotations
 import unittest
 
 from kalshi_crypto.market_lifecycle import (
-    RawKalshiMarketReplay,
+    RawKalshiMarketMessage,
     lifecycle_events_from_market,
 )
 
 
 class MarketLifecycleTests(unittest.TestCase):
     def test_open_market_emits_discovered_and_opened_events(self) -> None:
-        market = RawKalshiMarketReplay(
+        market = RawKalshiMarketMessage(
             market_ticker="KXBTCD-TEST",
             series_ticker="KXBTC15M",
             underlying="BTC",
@@ -32,7 +32,7 @@ class MarketLifecycleTests(unittest.TestCase):
         self.assertEqual(events[1].causality_id, events[0].event_id)
 
     def test_closing_market_emits_closing_soon_event(self) -> None:
-        market = RawKalshiMarketReplay(
+        market = RawKalshiMarketMessage(
             market_ticker="KXBTCD-TEST",
             series_ticker="KXBTC15M",
             underlying="BTC",
@@ -52,7 +52,7 @@ class MarketLifecycleTests(unittest.TestCase):
         self.assertEqual(events[1].payload["time_to_close_ms"], 11_000)
 
     def test_closed_market_emits_window_closed_event(self) -> None:
-        market = RawKalshiMarketReplay(
+        market = RawKalshiMarketMessage(
             market_ticker="KXBTCD-TEST",
             series_ticker="KXBTC15M",
             underlying="BTC",
@@ -72,7 +72,7 @@ class MarketLifecycleTests(unittest.TestCase):
 
     def test_rejects_invalid_market_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "close_timestamp_ms"):
-            RawKalshiMarketReplay(
+            RawKalshiMarketMessage(
                 market_ticker="KXBTCD-TEST",
                 series_ticker="KXBTC15M",
                 underlying="BTC",

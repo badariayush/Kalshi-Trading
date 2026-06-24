@@ -55,7 +55,7 @@ Responsibilities:
 - Read root `skills.md` and the worker `skills.md` before editing.
 - Keep changes within one worker unless the planning agent has approved a contract change.
 - Use `Decimal` for monetary math.
-- Default to paper/simulated mode.
+- Default to live-data capture with account order submission disabled.
 
 ### testing-agent
 
@@ -64,7 +64,7 @@ Purpose: owns tests, backtesting evidence, and regression coverage.
 Use when:
 
 - Adding a feature, fixing a bug, or changing risk/hedge logic.
-- Writing backtests or replay tests.
+- Writing live provider-adapter, parser, or audit tests.
 - Validating acceptance criteria.
 
 Responsibilities:
@@ -103,10 +103,10 @@ Use when:
 Responsibilities:
 
 - Check for hardcoded secrets and unsafe logging.
-- Confirm paper/demo/live mode cannot be flipped accidentally.
+- Confirm live-data versus execution-capable mode cannot be flipped accidentally.
 - Confirm venue rate limits and terms are not bypassed.
 - Confirm execution workers do not make trading decisions.
-- Confirm risk, true-arbitrage, and partial-hedge formulas match `ARCHITECTURE.md`.
+- Confirm risk, true-arbitrage, and partial-hedge formulas match current worker skills and tests.
 
 ## Worker Authority
 
@@ -126,7 +126,7 @@ Any change here requires security/risk review:
 - True-arbitrage formula: `Locked_in_cost(t) <= 1.00 - min_arb_margin`.
 - Asymmetric partial-hedge trigger, max-loss target, and integer contract sizing.
 - Kalshi API signing, private key paths, API key IDs, and credentials.
-- Live/paper/demo mode selection.
+- Live-data/execution mode selection.
 - Kill switch and circuit breaker behavior.
 - Fee calculations and fee rounding.
 - Order placement, cancellation, `buy_max_cost`, `reduce_only`, `post_only`, and time-in-force logic.
@@ -150,7 +150,7 @@ Any change here requires security/risk review:
 - TDD is mandatory once implementation begins.
 - Unit tests are required for pure math, config validation, and worker decisions.
 - Integration tests are required for provider adapters and persistence.
-- End-to-end paper/demo tests are required before any live pilot.
+- Live-data capture and report tests are required before any execution-capable pilot.
 - True-arbitrage tests must include stale books, fee rounding, depth, slippage, and boundary values at exactly `$1.00 - min_arb_margin`.
 - Partial-hedge tests must prove the computed hedge quantity caps wrong-side loss at the configured target across trigger prices and opposing ask prices.
 

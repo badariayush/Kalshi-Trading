@@ -4,11 +4,12 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, TextIO
 
 from kalshi_crypto.config import AppConfig
 from kalshi_crypto.events import AuditEvent
@@ -32,8 +33,31 @@ class LiveDataSummary:
     kalshi_messages: int
     coinbase_messages: int
     feed_unhealthy_events: int
+    simulated_orders: int
     audit_events: int
     network: str
+
+
+@dataclass(frozen=True, slots=True)
+class _KalshiLiveQuote:
+    market_ticker: str
+    yes_ask: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class _CoinbaseLiveTick:
+    product_id: str
+    price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class _SimulatedOrder:
+    market_ticker: str
+    side: str
+    price: Decimal
+    quantity: int
+    coinbase_product_id: str
+    coinbase_price: Decimal
 
 
 def events_from_kalshi_ws_message(
@@ -109,6 +133,7 @@ def run_live_data_audit(
     kalshi_market_tickers: tuple[str, ...] = (),
     input_file: str | Path | None = None,
     output_file: str | Path | None = None,
+    stdout: TextIO | None = None,
 ) -> LiveDataSummary:
     _validate_live_data_config(config=config, max_seconds=max_seconds)
     store = SQLiteAuditStore(audit_db)
@@ -124,6 +149,7 @@ def run_live_data_audit(
             monitor=monitor,
             network="not_attempted",
             timestamp_ms=_last_received_timestamp(messages),
+            stdout=stdout,
         )
 
     messages = tuple(
@@ -143,6 +169,7 @@ def run_live_data_audit(
         monitor=monitor,
         network="attempted",
         timestamp_ms=_last_received_timestamp(messages),
+        stdout=stdout,
     )
 
 
@@ -169,6 +196,7 @@ def _append_live_message_records(
     monitor: FeedHealthMonitor,
     network: str,
     timestamp_ms: int,
+    stdout: TextIO | None,
 ) -> LiveDataSummary:
     kalshi_messages = 0
     coinbase_messages = 0
@@ -190,6 +218,26 @@ def _append_live_message_records(
         if record.source == "coinbase":
             coinbase_messages += 1
 
+    simulated_orders = 0
+    simulated_order = _simulated_order_from_live_messages(messages)
+    if simulated_order is not None and feed_unhealthy_events == 0:
+        store.append(_simulated_order_event(simulated_order, timestamp_ms=timestamp_ms))
+        simulated_orders = 1
+        audit_events += 1
+        if stdout is not None:
+            print(
+                "simulated_order_placed="
+                f"market_ticker={simulated_order.market_ticker} "
+                f"side={simulated_order.side} "
+                f"price={_decimal_text(simulated_order.price)} "
+                f"quantity={simulated_order.quantity} "
+                f"coinbase_product_id={simulated_order.coinbase_product_id} "
+                f"coinbase_price={_decimal_text(simulated_order.coinbase_price)} "
+                "source=live_feeds execution=simulated_print_only "
+                "order_submission=disabled",
+                file=stdout,
+            )
+
     summary_event = AuditEvent.create(
         event_type="LiveDataAuditCompleted",
         worker="market_monitor",
@@ -198,6 +246,7 @@ def _append_live_message_records(
             "kalshi_messages": kalshi_messages,
             "coinbase_messages": coinbase_messages,
             "feed_unhealthy_events": feed_unhealthy_events,
+            "simulated_orders": simulated_orders,
             "network": network,
             "execution": "not_attempted",
             "order_submission": "disabled",
@@ -211,6 +260,7 @@ def _append_live_message_records(
         kalshi_messages=kalshi_messages,
         coinbase_messages=coinbase_messages,
         feed_unhealthy_events=feed_unhealthy_events,
+        simulated_orders=simulated_orders,
         audit_events=audit_events + 1,
         network=network,
     )
@@ -269,6 +319,208 @@ def _health_event(event: AuditEvent, monitor: FeedHealthMonitor) -> AuditEvent:
         causality_id=event.event_id,
         timestamp_ms=event.timestamp_ms,
     )
+
+
+def _simulated_order_from_live_messages(
+    messages: tuple[LiveMessageRecord, ...],
+) -> _SimulatedOrder | None:
+    kalshi_quote = _latest_kalshi_live_quote(messages)
+    coinbase_tick = _latest_coinbase_live_tick(messages)
+    if kalshi_quote is None or coinbase_tick is None:
+        return None
+    return _SimulatedOrder(
+        market_ticker=kalshi_quote.market_ticker,
+        side="yes",
+        price=kalshi_quote.yes_ask,
+        quantity=1,
+        coinbase_product_id=coinbase_tick.product_id,
+        coinbase_price=coinbase_tick.price,
+    )
+
+
+def _simulated_order_event(
+    simulated_order: _SimulatedOrder,
+    *,
+    timestamp_ms: int,
+) -> AuditEvent:
+    return AuditEvent.create(
+        event_type="SimulatedOrderPlaced",
+        worker="execution",
+        payload={
+            "market_ticker": simulated_order.market_ticker,
+            "action": "buy",
+            "side": simulated_order.side,
+            "price": _decimal_text(simulated_order.price),
+            "quantity": simulated_order.quantity,
+            "coinbase_product_id": simulated_order.coinbase_product_id,
+            "coinbase_price": _decimal_text(simulated_order.coinbase_price),
+            "source": "live_feeds",
+            "execution": "simulated_print_only",
+            "order_submission": "disabled",
+            "real_order_submitted": False,
+        },
+        causality_id="live-data",
+        timestamp_ms=timestamp_ms,
+    )
+
+
+def _latest_kalshi_live_quote(
+    messages: tuple[LiveMessageRecord, ...],
+) -> _KalshiLiveQuote | None:
+    for record in reversed(messages):
+        if record.source != "kalshi":
+            continue
+        quote = _kalshi_live_quote(record.message)
+        if quote is not None:
+            return quote
+    return None
+
+
+def _kalshi_live_quote(message: Mapping[str, Any]) -> _KalshiLiveQuote | None:
+    payload = _mapping_value(message.get("msg"))
+    market_ticker = _optional_str(
+        payload.get("market_ticker")
+        or message.get("market_ticker")
+        or payload.get("ticker")
+        or message.get("ticker")
+    )
+    if market_ticker is None:
+        return None
+    yes_ask = (
+        _probability_value(payload.get("yes_ask_dollars"))
+        or _probability_value(payload.get("yes_ask"))
+        or _cents_probability_value(payload.get("yes_ask_cents"))
+        or _inverse_probability_value(payload.get("no_bid_dollars"))
+        or _inverse_probability_value(payload.get("no_bid"))
+        or _inverse_cents_probability_value(payload.get("no_bid_cents"))
+        or _inverse_probability_value(_best_bid_from_levels(payload.get("no_bids")))
+        or _inverse_probability_value(_best_bid_from_levels(payload.get("no")))
+    )
+    if yes_ask is None:
+        return None
+    return _KalshiLiveQuote(market_ticker=market_ticker, yes_ask=yes_ask)
+
+
+def _latest_coinbase_live_tick(
+    messages: tuple[LiveMessageRecord, ...],
+) -> _CoinbaseLiveTick | None:
+    for record in reversed(messages):
+        if record.source != "coinbase":
+            continue
+        tick = _coinbase_live_tick(record.message)
+        if tick is not None:
+            return tick
+    return None
+
+
+def _coinbase_live_tick(message: Mapping[str, Any]) -> _CoinbaseLiveTick | None:
+    payloads = [_mapping_value(message)]
+    events = message.get("events")
+    if isinstance(events, list):
+        payloads = [_mapping_value(event) for event in events]
+
+    for payload in payloads:
+        tickers = payload.get("tickers")
+        if isinstance(tickers, list):
+            for ticker in tickers:
+                tick = _coinbase_tick_from_payload(_mapping_value(ticker))
+                if tick is not None:
+                    return tick
+        tick = _coinbase_tick_from_payload(payload)
+        if tick is not None:
+            return tick
+    return None
+
+
+def _coinbase_tick_from_payload(payload: Mapping[str, Any]) -> _CoinbaseLiveTick | None:
+    product_id = _optional_str(payload.get("product_id"))
+    if product_id not in {"BTC-USD", "ETH-USD"}:
+        return None
+    price = (
+        _decimal_value(payload.get("price"))
+        or _decimal_value(payload.get("best_bid"))
+        or _decimal_value(payload.get("best_ask"))
+        or _decimal_value(payload.get("price_level"))
+    )
+    if price is None:
+        return None
+    return _CoinbaseLiveTick(product_id=product_id, price=price)
+
+
+def _best_bid_from_levels(value: object) -> object | None:
+    if not isinstance(value, list):
+        return None
+    best_bid: Decimal | None = None
+    for level in value:
+        price = _price_from_level(level)
+        if price is None:
+            continue
+        if best_bid is None or price > best_bid:
+            best_bid = price
+    return best_bid
+
+
+def _price_from_level(level: object) -> Decimal | None:
+    if isinstance(level, Mapping):
+        return (
+            _probability_value(level.get("price"))
+            or _probability_value(level.get("price_dollars"))
+            or _cents_probability_value(level.get("price_cents"))
+        )
+    if isinstance(level, list | tuple) and level:
+        return _probability_value(level[0]) or _cents_probability_value(level[0])
+    return _probability_value(level) or _cents_probability_value(level)
+
+
+def _inverse_probability_value(value: object) -> Decimal | None:
+    probability = _probability_value(value)
+    if probability is None:
+        return None
+    return Decimal("1") - probability
+
+
+def _inverse_cents_probability_value(value: object) -> Decimal | None:
+    probability = _cents_probability_value(value)
+    if probability is None:
+        return None
+    return Decimal("1") - probability
+
+
+def _probability_value(value: object) -> Decimal | None:
+    parsed = _decimal_value(value)
+    if parsed is None:
+        return None
+    if parsed > 1:
+        parsed = parsed / Decimal("100")
+    if parsed <= 0 or parsed >= 1:
+        return None
+    return parsed
+
+
+def _cents_probability_value(value: object) -> Decimal | None:
+    parsed = _decimal_value(value)
+    if parsed is None:
+        return None
+    probability = parsed / Decimal("100")
+    if probability <= 0 or probability >= 1:
+        return None
+    return probability
+
+
+def _decimal_value(value: object) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not parsed.is_finite() or parsed <= 0:
+        return None
+    return parsed
+
+
+def _decimal_text(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 def load_live_message_records(path: str | Path) -> list[LiveMessageRecord]:

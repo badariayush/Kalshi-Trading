@@ -10,15 +10,15 @@ from kalshi_crypto.cli import main
 
 
 class DoctorCliTests(unittest.TestCase):
-    def test_doctor_accepts_safe_paper_config_without_execution(self) -> None:
+    def test_doctor_accepts_safe_live_data_config_without_execution(self) -> None:
         stdout = StringIO()
 
         with redirect_stdout(stdout):
-            exit_code = main(["doctor", "--config", "configs/paper.example.toml"])
+            exit_code = main(["doctor", "--config", "configs/live.example.toml"])
 
         output = stdout.getvalue()
         self.assertEqual(exit_code, 0)
-        self.assertIn("mode=paper_simulated", output)
+        self.assertIn("mode=live_data", output)
         self.assertIn("trade_mcp=disabled", output)
         self.assertIn("execution=not_attempted", output)
 

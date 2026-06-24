@@ -45,7 +45,7 @@ Planned outputs:
 
 ## Common Mistakes
 
-- Entry authorization belongs in the Risk Worker, not the Signal Worker or orchestrator. For paper runs, `EntryAuthorized` should include side, quantity, price, probability, and confidence after checking signal edge, confidence, fresh executable ask, and depth.
+- Entry authorization belongs in the Risk Worker, not the Signal Worker or orchestrator. Before any future execution-capable run, `EntryAuthorized` should include side, quantity, price, probability, and confidence after checking signal edge, confidence, fresh executable ask, and depth.
 - Do not use a fixed partial-hedge fraction by default. Solve the smallest integer contract quantity that caps wrong-side loss at the configured target, including fees, slippage, depth, and contract limits.
 - Do not call a partial hedge arbitrage or profit when the original side loses; report it as reduced loss.
 - When max-loss solving needs more contracts than fresh visible depth supports, reject with an explicit unmet-target reason instead of authorizing a smaller hedge that fails the configured cap.
@@ -67,5 +67,5 @@ Planned:
 
 ```bash
 python -m unittest discover -s tests
-python -m kalshi_crypto.cli doctor --config configs/paper.example.toml
+python -m kalshi_crypto.cli doctor --config configs/live.example.toml
 ```

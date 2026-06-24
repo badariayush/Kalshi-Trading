@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from kalshi_crypto.cli import main
+from kalshi_crypto.config import load_app_config
 from kalshi_crypto.live_config import LiveDataConfig, OrderApiConfig
 from kalshi_crypto.live_feeds import (
     CoinbaseWebSocketSubscription,
@@ -19,6 +20,7 @@ from kalshi_crypto.kalshi_orders import KalshiOrderRequest
 from kalshi_crypto.live_collectors import (
     events_from_coinbase_ws_message,
     events_from_kalshi_ws_message,
+    run_live_data_audit,
 )
 from kalshi_crypto.storage import SQLiteAuditStore
 
@@ -244,7 +246,7 @@ class LiveReadinessCliTests(unittest.TestCase):
 
         with redirect_stdout(stdout):
             exit_code = main(
-                ["doctor-live-data", "--config", "configs/paper.example.toml"]
+                ["doctor-live-data", "--config", "configs/live.example.toml"]
             )
 
         self.assertEqual(exit_code, 0)
@@ -264,7 +266,7 @@ class LiveReadinessCliTests(unittest.TestCase):
             path.write_text(
                 """
 [runtime]
-mode = "paper_simulated"
+mode = "live_data"
 confirm_live = false
 allow_trade_mcp = false
 
@@ -285,7 +287,26 @@ allow_order_submission = false
         self.assertEqual(exit_code, 2)
         self.assertIn("order API requires live network readiness", stderr.getvalue())
 
-    def test_live_data_audit_reads_provider_messages_and_never_executes_orders(self) -> None:
+    def test_live_data_cli_requires_actual_kalshi_market_ticker(self) -> None:
+        stderr = StringIO()
+
+        with self.assertRaises(SystemExit) as exc_info, redirect_stderr(stderr):
+            main(
+                [
+                    "live-data",
+                    "--config",
+                    "configs/live.example.toml",
+                    "--audit-db",
+                    "/private/tmp/unused.sqlite3",
+                    "--max-seconds",
+                    "10",
+                ]
+            )
+
+        self.assertEqual(exc_info.exception.code, 2)
+        self.assertIn("--kalshi-market-ticker", stderr.getvalue())
+
+    def test_internal_live_data_audit_parser_never_executes_orders(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             live_file = Path(tmpdir) / "live-messages.jsonl"
             audit_db = Path(tmpdir) / "live.sqlite3"
@@ -335,32 +356,19 @@ allow_order_submission = false
                 + "\n",
                 encoding="utf-8",
             )
-            stdout = StringIO()
-
-            with redirect_stdout(stdout):
-                exit_code = main(
-                    [
-                        "live-data",
-                        "--config",
-                        "configs/paper.example.toml",
-                        "--input-file",
-                        str(live_file),
-                        "--audit-db",
-                        str(audit_db),
-                        "--max-seconds",
-                        "10",
-                    ]
-                )
+            summary = run_live_data_audit(
+                config=load_app_config("configs/live.example.toml"),
+                audit_db=audit_db,
+                max_seconds=10,
+                kalshi_market_tickers=("KXBTCD-TEST",),
+                input_file=live_file,
+            )
 
             records = SQLiteAuditStore(audit_db).read_all()
 
-        self.assertEqual(exit_code, 0)
-        self.assertIn("status=ok", stdout.getvalue())
-        self.assertIn("network=not_attempted", stdout.getvalue())
-        self.assertIn("execution=not_attempted", stdout.getvalue())
-        self.assertIn("order_submission=disabled", stdout.getvalue())
-        self.assertIn("raw_messages=2", stdout.getvalue())
-        self.assertIn("feed_unhealthy_events=0", stdout.getvalue())
+        self.assertEqual(summary.network, "not_attempted")
+        self.assertEqual(summary.raw_messages, 2)
+        self.assertEqual(summary.feed_unhealthy_events, 0)
         self.assertEqual(
             [record["event_type"] for record in records],
             [
@@ -372,6 +380,75 @@ allow_order_submission = false
             ],
         )
         self.assertEqual(records[-1]["payload"]["order_submission"], "disabled")
+
+    def test_live_data_audit_prints_simulated_order_only_from_live_feed_prices(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            live_file = Path(tmpdir) / "live-messages.jsonl"
+            audit_db = Path(tmpdir) / "live.sqlite3"
+            live_file.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "source": "kalshi",
+                                "received_timestamp_ms": 1_700_000_000_050,
+                                "message": {
+                                    "type": "ticker",
+                                    "seq": 1,
+                                    "msg": {
+                                        "market_ticker": "KXBTCD-TEST",
+                                        "yes_ask_dollars": "0.48",
+                                        "source_timestamp_ms": 1_700_000_000_000,
+                                    },
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "source": "coinbase",
+                                "received_timestamp_ms": 1_700_000_000_060,
+                                "message": {
+                                    "channel": "ticker",
+                                    "timestamp_ms": 1_700_000_000_000,
+                                    "events": [
+                                        {
+                                            "type": "update",
+                                            "tickers": [
+                                                {
+                                                    "product_id": "BTC-USD",
+                                                    "price": "100000.00",
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stdout = StringIO()
+            summary = run_live_data_audit(
+                config=load_app_config("configs/live.example.toml"),
+                audit_db=audit_db,
+                max_seconds=10,
+                kalshi_market_tickers=("KXBTCD-TEST",),
+                input_file=live_file,
+                stdout=stdout,
+            )
+
+            records = SQLiteAuditStore(audit_db).read_all()
+
+        self.assertEqual(summary.simulated_orders, 1)
+        self.assertIn("simulated_order_placed=", stdout.getvalue())
+        self.assertIn("source=live_feeds", stdout.getvalue())
+        self.assertIn("order_submission=disabled", stdout.getvalue())
+        self.assertEqual(records[-2]["event_type"], "SimulatedOrderPlaced")
+        self.assertEqual(records[-2]["payload"]["market_ticker"], "KXBTCD-TEST")
+        self.assertEqual(records[-2]["payload"]["execution"], "simulated_print_only")
+        self.assertEqual(records[-1]["payload"]["simulated_orders"], 1)
 
     def test_live_data_audit_tolerates_small_provider_clock_skew(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -392,27 +469,17 @@ allow_order_submission = false
                 + "\n",
                 encoding="utf-8",
             )
-            stdout = StringIO()
-
-            with redirect_stdout(stdout):
-                exit_code = main(
-                    [
-                        "live-data",
-                        "--config",
-                        "configs/paper.example.toml",
-                        "--input-file",
-                        str(live_file),
-                        "--audit-db",
-                        str(audit_db),
-                        "--max-seconds",
-                        "10",
-                    ]
-                )
+            summary = run_live_data_audit(
+                config=load_app_config("configs/live.example.toml"),
+                audit_db=audit_db,
+                max_seconds=10,
+                kalshi_market_tickers=("KXBTCD-TEST",),
+                input_file=live_file,
+            )
 
             records = SQLiteAuditStore(audit_db).read_all()
 
-        self.assertEqual(exit_code, 0)
-        self.assertIn("feed_unhealthy_events=0", stdout.getvalue())
+        self.assertEqual(summary.feed_unhealthy_events, 0)
         self.assertEqual(records[1]["event_type"], "FeedHealthEvaluated")
         self.assertEqual(records[1]["payload"]["healthy"], True)
 
@@ -420,24 +487,33 @@ allow_order_submission = false
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = Path(tmpdir) / "captured.jsonl"
             audit_db = Path(tmpdir) / "live.sqlite3"
-            stdout = StringIO()
-
-            with redirect_stdout(stdout):
-                exit_code = main(
-                    [
-                        "live-data",
-                        "--config",
-                        "configs/paper.example.toml",
-                        "--input-file",
-                        "configs/live.messages.example.jsonl",
-                        "--output-file",
-                        str(output_file),
-                        "--audit-db",
-                        str(audit_db),
-                        "--max-seconds",
-                        "10",
-                    ]
+            live_file = Path(tmpdir) / "live-messages.jsonl"
+            live_file.write_text(
+                json.dumps(
+                    {
+                        "source": "kalshi",
+                        "received_timestamp_ms": 1_700_000_000_050,
+                        "message": {
+                            "type": "ticker",
+                            "seq": 1,
+                            "msg": {
+                                "market_ticker": "KXBTCD-TEST",
+                                "source_timestamp_ms": 1_700_000_000_000,
+                            },
+                        },
+                    }
                 )
+                + "\n",
+                encoding="utf-8",
+            )
+            summary = run_live_data_audit(
+                config=load_app_config("configs/live.example.toml"),
+                audit_db=audit_db,
+                max_seconds=10,
+                kalshi_market_tickers=("KXBTCD-TEST",),
+                input_file=live_file,
+                output_file=output_file,
+            )
 
             records = [
                 json.loads(line)
@@ -445,9 +521,8 @@ allow_order_submission = false
                 if line.strip()
             ]
 
-        self.assertEqual(exit_code, 0)
-        self.assertIn("raw_messages=2", stdout.getvalue())
-        self.assertEqual(len(records), 2)
+        self.assertEqual(summary.raw_messages, 1)
+        self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["source"], "kalshi")
         self.assertIn("message", records[0])
 
@@ -457,7 +532,7 @@ allow_order_submission = false
             path.write_text(
                 """
 [runtime]
-mode = "paper_simulated"
+mode = "live_data"
 confirm_live = false
 allow_trade_mcp = false
 
@@ -480,8 +555,8 @@ allow_order_submission = true
                         str(path),
                         "--audit-db",
                         str(Path(tmpdir) / "live.sqlite3"),
-                        "--input-file",
-                        str(path),
+                        "--kalshi-market-ticker",
+                        "KXBTCD-TEST",
                     ]
                 )
 

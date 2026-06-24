@@ -1,3 +1,0 @@
-{"record_type":"cf_benchmark_tick","index_ticker":"BRTI","price":"100000","source_timestamp_ms":1000,"received_timestamp_ms":1050}
-{"record_type":"cf_benchmark_tick","index_ticker":"BRTI","price":"100500","source_timestamp_ms":30000,"received_timestamp_ms":30050}
-{"record_type":"cf_benchmark_tick","index_ticker":"BRTI","price":"101000","source_timestamp_ms":61000,"received_timestamp_ms":61050}

@@ -11,7 +11,7 @@ class SafetyError(RuntimeError):
 
 
 class ExecutionBackend(str, Enum):
-    PAPER_SIMULATED = "paper_simulated"
+    LIVE_DATA = "live_data"
     DIRECT_KALSHI = "direct_kalshi"
     TRADE_MCP = "trade_mcp"
 

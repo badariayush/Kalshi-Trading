@@ -43,17 +43,16 @@ Execution must reconcile expected vs actual price, quantity, and fees for every 
 
 ## Common Mistakes
 
-- Do not add trade-execution MCP support as an execution backend without a separate security/risk review and explicit operator approval. The first implementation guard blocks `trade_mcp` even in paper mode.
+- Do not add trade-execution MCP support as an execution backend without a separate security/risk review and explicit operator approval. The first implementation guard blocks `trade_mcp`.
 - The `doctor` CLI validates config and safety gates only. It must not place orders, open WebSockets, call REST endpoints, read credentials, or mutate account state.
 - Kalshi auth/order API plumbing can build RSA-PSS header messages and V2 order payloads, and committed configs may keep `order_api.enable_order_api = true` for readiness. They must keep `order_api.allow_order_submission = false`. Any command that flips from request building to order submission requires explicit operator approval and a fresh security/risk review.
 - Buy order request objects must include `client_order_id` and `buy_max_cost`; this preserves idempotency and cost bounds before any future HTTP transport is allowed.
-- Paper execution is the only approved execution path before real order submission: it consumes already-authorized instructions, prints `order placed` / `order sold` lines, emits `OrderSubmitted`, `FillRecorded`, and `PositionClosed` audit events, and computes realized P&L after both entry and exit Kalshi fees. It must not choose side, size, or authorization.
-- The `paper` CLI should exercise paper execution through the full worker chain and keep `order_submission=disabled` in the completion summary and audit record.
+- Simulated order-fill printing has been removed from the operator-facing product. The current live-only run surface captures and audits market data while keeping `order_submission=disabled`.
 
 ## Debugging Playbook
 
 1. Reproduce with the authorized instruction and the exact Kalshi request/response, with secrets redacted.
-2. Confirm mode and endpoint: paper, demo, and live must not be mixed.
+2. Confirm mode and endpoint: live-data capture and execution-capable modes must not be mixed.
 3. Confirm RSA-PSS signing path excludes query params.
 4. Check idempotent `client_order_id` before retrying.
 5. Verify time-in-force and cost bounds match the authorization.
@@ -65,5 +64,5 @@ Planned:
 
 ```bash
 python -m unittest discover -s tests
-python -m kalshi_crypto.cli paper-demo --config configs/demo.example.toml --max-seconds 3600
+PYTHONPATH=src python -m kalshi_crypto.cli doctor-live-data --config configs/live.example.toml
 ```

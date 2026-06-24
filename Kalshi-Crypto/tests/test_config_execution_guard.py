@@ -12,10 +12,10 @@ from kalshi_crypto.execution import (
 
 
 class ConfigAndExecutionSafetyTests(unittest.TestCase):
-    def test_runtime_defaults_to_paper_simulated(self) -> None:
+    def test_runtime_defaults_to_live_data(self) -> None:
         config = RuntimeConfig.from_mapping({})
 
-        self.assertEqual(config.mode, RuntimeMode.PAPER_SIMULATED)
+        self.assertEqual(config.mode, RuntimeMode.LIVE_DATA)
         self.assertFalse(config.confirm_live)
         self.assertFalse(config.allow_trade_mcp)
 
@@ -28,7 +28,7 @@ class ConfigAndExecutionSafetyTests(unittest.TestCase):
             RuntimeConfig.from_mapping({"allow_trade_mcp": True})
 
         intent = ExecutionIntent(
-            mode=RuntimeMode.PAPER_SIMULATED,
+            mode=RuntimeMode.LIVE_DATA,
             backend=ExecutionBackend.TRADE_MCP,
             confirm_live=False,
         )

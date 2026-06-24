@@ -1,5 +1,5 @@
 [runtime]
-mode = "paper_simulated"
+mode = "live_data"
 confirm_live = false
 allow_trade_mcp = false
 

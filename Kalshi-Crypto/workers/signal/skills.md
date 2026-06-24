@@ -40,7 +40,7 @@ The output must include feature snapshots and source timestamps so a future revi
 ## Common Mistakes
 
 - Signal Worker output is informational only: feature snapshots, `probability_yes`, confidence, and skip reasons. It must not decide side, size, entry, partial hedge, true arbitrage, or orders.
-- Local `data-only` raw replay records with `record_type = "cf_benchmark_tick"` should emit `CFBenchmarkTickIngested`, paired `FeedHealthEvaluated`, and aggregated `CFBenchmarkCandleClosed` events. This path uses captured local data only, not live CF Benchmarks ingestion.
+- Do not add non-live signal runs as operator commands. Signal inputs for operator runs must come from live WebSocket capture.
 - Signal v1 computes explainable features from CF Benchmark candles and normalized Kalshi asks: EMA spread, one-candle momentum, realized-volatility proxy, strike distance, and Kalshi yes/no ask cross-check. Treat this as a testable feature path, not a proven trading edge.
 - Stale order book checks should report `stale_orderbook` before lower-priority skip reasons such as insufficient candle count.
 

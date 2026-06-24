@@ -40,7 +40,7 @@ class EventAndAuditTests(unittest.TestCase):
         self.assertEqual(published, 1)
         self.assertEqual(seen, [event])
 
-    def test_jsonl_audit_log_appends_redacted_replayable_events(self) -> None:
+    def test_jsonl_audit_log_appends_redacted_reviewable_events(self) -> None:
         event = AuditEvent.create(
             event_type="ConfigChecked",
             worker="logging",

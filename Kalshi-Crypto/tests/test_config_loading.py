@@ -13,10 +13,10 @@ from kalshi_crypto.config import (
 
 
 class AppConfigLoadingTests(unittest.TestCase):
-    def test_loads_safe_paper_example_config(self) -> None:
-        config = load_app_config("configs/paper.example.toml")
+    def test_loads_safe_live_example_config(self) -> None:
+        config = load_app_config("configs/live.example.toml")
 
-        self.assertEqual(config.runtime.mode, RuntimeMode.PAPER_SIMULATED)
+        self.assertEqual(config.runtime.mode, RuntimeMode.LIVE_DATA)
         self.assertFalse(config.runtime.confirm_live)
         self.assertFalse(config.runtime.allow_trade_mcp)
         self.assertEqual(config.trade_management.min_arb_margin, Decimal("0.0200"))
@@ -39,7 +39,7 @@ class AppConfigLoadingTests(unittest.TestCase):
             path.write_text(
                 """
 [runtime]
-mode = "paper_simulated"
+mode = "live_data"
 allow_trade_mcp = true
 """.strip(),
                 encoding="utf-8",
@@ -54,7 +54,7 @@ allow_trade_mcp = true
             path.write_text(
                 """
 [runtime]
-mode = "paper_simulated"
+mode = "live_data"
 
 [trade_management]
 partial_hedge_max_loss_pct_of_original_risk = "0.75"

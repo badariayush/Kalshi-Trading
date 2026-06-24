@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from kalshi_crypto.events import AuditEvent
-from kalshi_crypto.market_lifecycle import RawKalshiMarketReplay, lifecycle_events_from_market
+from kalshi_crypto.market_lifecycle import RawKalshiMarketMessage, lifecycle_events_from_market
 from kalshi_crypto.market_state import MarketWindowRegistry
 
 
@@ -18,7 +18,7 @@ def _market_events(
     strike: str = "102500",
 ) -> tuple[AuditEvent, ...]:
     return lifecycle_events_from_market(
-        RawKalshiMarketReplay(
+        RawKalshiMarketMessage(
             market_ticker=market_ticker,
             series_ticker=f"KX{underlying}15M",
             underlying=underlying,

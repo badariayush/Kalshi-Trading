@@ -13,6 +13,7 @@ class ReportSummary:
     total_events: int
     feed_unhealthy_events: int
     execution_failures: int
+    simulated_orders: int
     closed_positions: int
     profitable_positions: int
     losing_positions: int
@@ -38,6 +39,7 @@ def build_report(records: Iterable[dict[str, Any]]) -> ReportSummary:
     total_events = 0
     feed_unhealthy_events = 0
     execution_failures = 0
+    simulated_orders = 0
     closed_positions = 0
     profitable_positions = 0
     losing_positions = 0
@@ -54,6 +56,8 @@ def build_report(records: Iterable[dict[str, Any]]) -> ReportSummary:
             feed_unhealthy_events += 1
         if event_type == "ExecutionFailed":
             execution_failures += 1
+        if event_type == "SimulatedOrderPlaced":
+            simulated_orders += 1
         if event_type == "PositionClosed":
             closed_positions += 1
             realized_pnl = Decimal(str(payload.get("realized_pnl", "0")))
@@ -69,6 +73,7 @@ def build_report(records: Iterable[dict[str, Any]]) -> ReportSummary:
         total_events=total_events,
         feed_unhealthy_events=feed_unhealthy_events,
         execution_failures=execution_failures,
+        simulated_orders=simulated_orders,
         closed_positions=closed_positions,
         profitable_positions=profitable_positions,
         losing_positions=losing_positions,

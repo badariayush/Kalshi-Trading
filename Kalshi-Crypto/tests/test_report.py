@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
@@ -48,15 +48,25 @@ class ReportTests(unittest.TestCase):
             ),
             _event(
                 "ExecutionFailed",
-                {"reason": "paper failure fixture"},
+                {"reason": "execution failure"},
                 5_000,
+            ),
+            _event(
+                "SimulatedOrderPlaced",
+                {
+                    "market_ticker": "KXBTCD-TEST",
+                    "execution": "simulated_print_only",
+                    "order_submission": "disabled",
+                },
+                6_000,
             ),
         )
 
         report = build_report(tuple(event.to_dict() for event in events))
 
-        self.assertEqual(report.total_events, 5)
+        self.assertEqual(report.total_events, 6)
         self.assertEqual(report.feed_unhealthy_events, 1)
+        self.assertEqual(report.simulated_orders, 1)
         self.assertEqual(report.closed_positions, 2)
         self.assertEqual(report.profitable_positions, 1)
         self.assertEqual(report.losing_positions, 1)
@@ -70,8 +80,16 @@ class ReportTests(unittest.TestCase):
             store = SQLiteAuditStore(audit_db)
             store.append(
                 _event(
-                    "PositionClosed",
-                    {"realized_pnl": "2.00", "outcome": "profit"},
+                    "LiveDataAuditCompleted",
+                    {
+                        "raw_messages": 10,
+                        "kalshi_messages": 5,
+                        "coinbase_messages": 5,
+                        "feed_unhealthy_events": 0,
+                        "network": "attempted",
+                        "execution": "not_attempted",
+                        "order_submission": "disabled",
+                    },
                     1_000,
                 )
             )
@@ -81,9 +99,29 @@ class ReportTests(unittest.TestCase):
                 exit_code = main(["report", "--audit-db", str(audit_db)])
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("status=profit", stdout.getvalue())
-        self.assertIn("closed_positions=1", stdout.getvalue())
-        self.assertIn("total_realized_pnl=2.00", stdout.getvalue())
+        self.assertIn("status=no_trades", stdout.getvalue())
+        self.assertIn("simulated_orders=0", stdout.getvalue())
+        self.assertIn("closed_positions=0", stdout.getvalue())
+        self.assertIn("total_realized_pnl=0.00", stdout.getvalue())
+
+    def test_report_cli_rejects_non_live_audit_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audit_db = Path(tmpdir) / "audit.sqlite3"
+            store = SQLiteAuditStore(audit_db)
+            store.append(
+                _event(
+                    "NonLiveRunCompleted",
+                    {"network": "non_live", "order_submission": "disabled"},
+                    1_000,
+                )
+            )
+            stderr = StringIO()
+
+            with redirect_stderr(stderr):
+                exit_code = main(["report", "--audit-db", str(audit_db)])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("only accepts live-data audit databases", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -15,14 +15,13 @@ class ConfigError(ValueError):
 
 
 class RuntimeMode(str, Enum):
-    PAPER_SIMULATED = "paper_simulated"
-    PAPER_DEMO = "paper_demo"
+    LIVE_DATA = "live_data"
     LIVE = "live"
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
-    mode: RuntimeMode = RuntimeMode.PAPER_SIMULATED
+    mode: RuntimeMode = RuntimeMode.LIVE_DATA
     confirm_live: bool = False
     allow_trade_mcp: bool = False
 
@@ -39,7 +38,7 @@ class RuntimeConfig:
             raise ConfigError("runtime config must be a mapping")
 
         return cls(
-            mode=_runtime_mode(runtime.get("mode", RuntimeMode.PAPER_SIMULATED.value)),
+            mode=_runtime_mode(runtime.get("mode", RuntimeMode.LIVE_DATA.value)),
             confirm_live=_bool_value(runtime.get("confirm_live", False)),
             allow_trade_mcp=_bool_value(runtime.get("allow_trade_mcp", False)),
         )
