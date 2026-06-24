@@ -1,0 +1,2 @@
+{"source":"kalshi","received_timestamp_ms":1700000000050,"message":{"type":"ticker","sid":1,"seq":1,"msg":{"market_ticker":"KXBTCD-TEST","yes_bid_dollars":"0.47","yes_ask_dollars":"0.48","source_timestamp_ms":1700000000000}}}
+{"source":"coinbase","received_timestamp_ms":1700000000060,"message":{"channel":"l2_data","sequence_num":2,"timestamp":"2023-11-14T22:13:20Z","events":[{"type":"snapshot","product_id":"BTC-USD","updates":[{"side":"bid","price_level":"100000.00","new_quantity":"1.0","event_time":"2023-11-14T22:13:20Z"}]}]}}

@@ -46,7 +46,7 @@ async def monitor_kalshi_market_ws(
         return
     await _reconnecting_ws(
         name="kalshi",
-        uri="wss://api.elections.kalshi.com/trade-api/ws/v2",
+        uri="wss://external-api-ws.kalshi.com/trade-api/ws/v2",
         subscription={
             "id": 1,
             "cmd": "subscribe",

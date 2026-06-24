@@ -27,6 +27,11 @@ htmlcov/
 data/
 logs/
 reports/
+STOP_TRADING
+configs/*.local.toml
+configs/demo.toml
+configs/live.toml
+configs/paper.toml
 
 # macOS
 .DS_Store

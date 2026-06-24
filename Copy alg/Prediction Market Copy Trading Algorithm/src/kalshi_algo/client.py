@@ -90,8 +90,8 @@ class KalshiClient:
     def _ws_uri(self) -> str:
         env = (self.credentials.environment or "prod").lower()
         if env == "demo":
-            return "wss://demo-api.kalshi.co/trade-api/ws/v2"
-        return "wss://api.elections.kalshi.com/trade-api/ws/v2"
+            return "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2"
+        return "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
 
     def _subscription_message(self) -> dict[str, Any]:
         return {
