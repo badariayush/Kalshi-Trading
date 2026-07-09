@@ -53,6 +53,40 @@ class SQLiteAuditStore:
                 ).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def read_report_events(self) -> list[dict[str, Any]]:
+        with closing(sqlite3.connect(self.path)) as connection:
+            rows = connection.execute(
+                """
+                SELECT record_json
+                FROM audit_events
+                WHERE event_type IN (
+                    'LiveDataAuditCompleted',
+                    'ExecutionFailed',
+                    'SimulatedOrderPlaced',
+                    'PositionClosed'
+                )
+                ORDER BY sequence
+                """
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def latest_sequence(self) -> int:
+        with closing(sqlite3.connect(self.path)) as connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM audit_events"
+            ).fetchone()
+        return int(row[0])
+
+    def has_event_type(self, event_type: str) -> bool:
+        if not event_type:
+            raise ValueError("event_type is required")
+        with closing(sqlite3.connect(self.path)) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM audit_events WHERE event_type = ? LIMIT 1",
+                (event_type,),
+            ).fetchone()
+        return row is not None
+
     def _initialize(self) -> None:
         with closing(sqlite3.connect(self.path)) as connection:
             with connection:
@@ -66,6 +100,18 @@ class SQLiteAuditStore:
                         timestamp_ms INTEGER NOT NULL,
                         causality_id TEXT NOT NULL,
                         record_json TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_audit_report_events
+                    ON audit_events (event_type, sequence)
+                    WHERE event_type IN (
+                        'LiveDataAuditCompleted',
+                        'ExecutionFailed',
+                        'SimulatedOrderPlaced',
+                        'PositionClosed'
                     )
                     """
                 )

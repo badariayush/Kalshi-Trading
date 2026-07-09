@@ -18,7 +18,17 @@ min_depth_contracts = 1
 
 [circuit_breakers]
 data_feed_stale_seconds = "2.5"
+future_clock_skew_tolerance_ms = 1500
 halt_new_entries_on_feed_unhealthy = true
+
+[paper_strategy]
+underlying_product_id = "BTC-USD"
+candle_interval_seconds = 5
+short_ema_period = 3
+long_ema_period = 8
+min_probability_edge = "0.01"
+min_confidence = "0.05"
+quantity = 1
 
 [live_data]
 enable_live_network = true
@@ -26,7 +36,7 @@ kalshi_ws_url = "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
 coinbase_ws_url = "wss://advanced-trade-ws.coinbase.com"
 kalshi_channels = ["orderbook_delta", "ticker", "market_lifecycle_v2"]
 coinbase_channels = ["ticker", "level2"]
-coinbase_product_ids = ["BTC-USD", "ETH-USD"]
+coinbase_product_ids = ["BTC-USD"]
 
 [order_api]
 enable_order_api = true

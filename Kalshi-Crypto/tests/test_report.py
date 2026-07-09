@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from kalshi_crypto.cli import main
 from kalshi_crypto.events import AuditEvent
@@ -73,6 +74,46 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report.total_realized_pnl, Decimal("0.95"))
         self.assertEqual(report.execution_failures, 1)
         self.assertEqual(report.status, "error")
+        self.assertEqual(report.open_positions, 1)
+        self.assertEqual(report.win_rate_pct, Decimal("50.00"))
+        self.assertEqual(report.average_realized_pnl, Decimal("0.48"))
+
+    def test_report_counts_open_paper_positions_and_total_fees(self) -> None:
+        events = (
+            _event(
+                "SimulatedOrderPlaced",
+                {
+                    "market_ticker": "OPEN",
+                    "leg_index": 1,
+                    "fee": "0.02",
+                },
+                1_000,
+            ),
+            _event(
+                "SimulatedOrderPlaced",
+                {
+                    "market_ticker": "CLOSED",
+                    "leg_index": 1,
+                    "fee": "0.02",
+                },
+                2_000,
+            ),
+            _event(
+                "PositionClosed",
+                {
+                    "market_ticker": "CLOSED",
+                    "realized_pnl": "0.10",
+                    "total_fees": "0.04",
+                },
+                3_000,
+            ),
+        )
+
+        report = build_report(tuple(event.to_dict() for event in events))
+
+        self.assertEqual(report.open_positions, 1)
+        self.assertEqual(report.total_fees, Decimal("0.06"))
+        self.assertEqual(report.win_rate_pct, Decimal("100.00"))
 
     def test_report_cli_reads_sqlite_audit_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -103,6 +144,34 @@ class ReportTests(unittest.TestCase):
         self.assertIn("simulated_orders=0", stdout.getvalue())
         self.assertIn("closed_positions=0", stdout.getvalue())
         self.assertIn("total_realized_pnl=0.00", stdout.getvalue())
+
+    def test_report_cli_does_not_materialize_the_full_raw_audit_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audit_db = Path(tmpdir) / "audit.sqlite3"
+            store = SQLiteAuditStore(audit_db)
+            store.append(
+                _event(
+                    "LiveDataAuditCompleted",
+                    {
+                        "feed_unhealthy_events": 2,
+                        "network": "attempted",
+                        "order_submission": "disabled",
+                    },
+                    1_000,
+                )
+            )
+            stdout = StringIO()
+
+            with patch.object(
+                SQLiteAuditStore,
+                "read_all",
+                side_effect=AssertionError("report must not load raw feed rows"),
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main(["report", "--audit-db", str(audit_db)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("feed_unhealthy_events=2", stdout.getvalue())
 
     def test_report_cli_rejects_non_live_audit_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

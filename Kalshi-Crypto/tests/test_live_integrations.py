@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
+import asyncio
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from kalshi_crypto.cli import main
 from kalshi_crypto.config import load_app_config
@@ -18,10 +21,16 @@ from kalshi_crypto.kalshi_auth import KalshiAuthConfig
 from kalshi_crypto.kalshi_auth import build_kalshi_auth_headers, kalshi_signature_message
 from kalshi_crypto.kalshi_orders import KalshiOrderRequest
 from kalshi_crypto.live_collectors import (
+    LiveMessageRecord,
+    _collect_websocket_messages,
+    _kalshi_key_id_from_env,
+    _kalshi_private_key_pem_from_env,
+    _record_feed_is_healthy,
     events_from_coinbase_ws_message,
     events_from_kalshi_ws_message,
     run_live_data_audit,
 )
+from kalshi_crypto.feed_health import FeedHealthMonitor
 from kalshi_crypto.storage import SQLiteAuditStore
 
 
@@ -44,12 +53,70 @@ class LiveIntegrationConfigTests(unittest.TestCase):
         self.assertEqual(config.kalshi_rest_url, "https://api.elections.kalshi.com/trade-api/v2")
 
     def test_auth_config_resolves_environment_names_without_reading_secret_files(self) -> None:
-        config = KalshiAuthConfig(
-            key_id_env="KALSHI_KEY_ID",
-            private_key_pem_env="KALSHI_PRIVATE_KEY_PEM",
+        config = KalshiAuthConfig()
+
+        self.assertEqual(
+            config.required_env_vars(),
+            ("KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH"),
         )
 
-        self.assertEqual(config.required_env_vars(), ("KALSHI_KEY_ID", "KALSHI_PRIVATE_KEY_PEM"))
+    def test_kalshi_auth_accepts_previous_algorithm_environment_names(self) -> None:
+        with patch.dict(os.environ, {"KALSHI_API_KEY_ID": "legacy-key-id"}, clear=True):
+            self.assertEqual(_kalshi_key_id_from_env(), "legacy-key-id")
+
+    def test_kalshi_auth_prefers_previous_algorithm_key_id_name(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "KALSHI_API_KEY_ID": "file-path-style-key-id",
+                "KALSHI_KEY_ID": "pem-style-key-id",
+            },
+            clear=True,
+        ):
+            self.assertEqual(_kalshi_key_id_from_env(), "file-path-style-key-id")
+
+    def test_kalshi_auth_reads_previous_algorithm_private_key_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            key_path = Path(tmpdir) / "kalshi_private_key.pem"
+            key_path.write_text(
+                "-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                os.environ,
+                {"KALSHI_PRIVATE_KEY_PATH": str(key_path)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    _kalshi_private_key_pem_from_env(),
+                    "-----BEGIN PRIVATE KEY-----\nbody\n-----END PRIVATE KEY-----\n",
+                )
+
+    def test_kalshi_auth_prefers_private_key_path_over_raw_pem_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            key_path = Path(tmpdir) / "kalshi_private_key.pem"
+            key_path.write_text(
+                "-----BEGIN PRIVATE KEY-----\npath\n-----END PRIVATE KEY-----\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "KALSHI_PRIVATE_KEY_PATH": str(key_path),
+                    "KALSHI_PRIVATE_KEY_PEM": (
+                        "-----BEGIN PRIVATE KEY-----\n"
+                        "env\n"
+                        "-----END PRIVATE KEY-----\n"
+                    ),
+                },
+                clear=True,
+            ):
+                self.assertEqual(
+                    _kalshi_private_key_pem_from_env(),
+                    "-----BEGIN PRIVATE KEY-----\npath\n-----END PRIVATE KEY-----\n",
+                )
 
     def test_kalshi_auth_header_builder_signs_timestamp_method_and_path(self) -> None:
         signed_messages: list[str] = []
@@ -75,6 +142,113 @@ class LiveIntegrationConfigTests(unittest.TestCase):
                 "KALSHI-ACCESS-SIGNATURE": "signed-message",
             },
         )
+
+    def test_realtime_strategy_gate_rejects_stale_and_clock_skewed_records(self) -> None:
+        monitor = FeedHealthMonitor(max_stale_ms=2_500)
+        healthy = LiveMessageRecord(
+            source="kalshi",
+            received_timestamp_ms=1_700_000_000_500,
+            message={
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "source_timestamp_ms": 1_700_000_000_000,
+                },
+            },
+        )
+        stale = LiveMessageRecord(
+            source="kalshi",
+            received_timestamp_ms=1_700_000_003_000,
+            message={
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "source_timestamp_ms": 1_700_000_000_000,
+                },
+            },
+        )
+        skewed = LiveMessageRecord(
+            source="kalshi",
+            received_timestamp_ms=1_700_000_000_000,
+            message={
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "source_timestamp_ms": 1_700_000_001_001,
+                },
+            },
+        )
+
+        self.assertTrue(_record_feed_is_healthy(healthy, monitor))
+        self.assertFalse(_record_feed_is_healthy(stale, monitor))
+        self.assertFalse(_record_feed_is_healthy(skewed, monitor))
+
+    def test_realtime_strategy_gate_tolerates_configured_provider_clock_jitter(self) -> None:
+        monitor = FeedHealthMonitor(max_stale_ms=2_500)
+        observed_kalshi_jitter = LiveMessageRecord(
+            source="kalshi",
+            received_timestamp_ms=1_782_617_403_538,
+            message={
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "source_timestamp_ms": 1_782_617_404_644,
+                },
+            },
+        )
+        genuinely_skewed = LiveMessageRecord(
+            source="kalshi",
+            received_timestamp_ms=1_782_617_403_538,
+            message={
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "source_timestamp_ms": 1_782_617_408_539,
+                },
+            },
+        )
+
+        self.assertTrue(
+            _record_feed_is_healthy(
+                observed_kalshi_jitter,
+                monitor,
+                future_clock_skew_tolerance_ms=1_500,
+            )
+        )
+        self.assertFalse(
+            _record_feed_is_healthy(
+                genuinely_skewed,
+                monitor,
+                future_clock_skew_tolerance_ms=1_500,
+            )
+        )
+
+    def test_kalshi_ticker_numeric_seconds_timestamp_is_normalized_to_milliseconds(self) -> None:
+        event = events_from_kalshi_ws_message(
+            {
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "ts": 1_782_646_202,
+                },
+            },
+            received_timestamp_ms=1_782_646_202_649,
+        )[0]
+        monitor = FeedHealthMonitor(max_stale_ms=2_500)
+        record = LiveMessageRecord(
+            source="kalshi",
+            received_timestamp_ms=1_782_646_202_649,
+            message={
+                "type": "ticker",
+                "msg": {
+                    "market_ticker": "KXBTCD-TEST",
+                    "ts": 1_782_646_202,
+                },
+            },
+        )
+
+        self.assertEqual(event.payload["source_timestamp_ms"], 1_782_646_202_000)
+        self.assertTrue(_record_feed_is_healthy(record, monitor))
 
     def test_kalshi_signature_message_rejects_queryless_path_mistakes(self) -> None:
         with self.assertRaisesRegex(ValueError, "path must start"):
@@ -290,8 +464,8 @@ allow_order_submission = false
     def test_live_data_cli_requires_actual_kalshi_market_ticker(self) -> None:
         stderr = StringIO()
 
-        with self.assertRaises(SystemExit) as exc_info, redirect_stderr(stderr):
-            main(
+        with redirect_stderr(stderr):
+            exit_code = main(
                 [
                     "live-data",
                     "--config",
@@ -303,7 +477,7 @@ allow_order_submission = false
                 ]
             )
 
-        self.assertEqual(exc_info.exception.code, 2)
+        self.assertEqual(exit_code, 2)
         self.assertIn("--kalshi-market-ticker", stderr.getvalue())
 
     def test_internal_live_data_audit_parser_never_executes_orders(self) -> None:
@@ -441,14 +615,76 @@ allow_order_submission = false
 
             records = SQLiteAuditStore(audit_db).read_all()
 
-        self.assertEqual(summary.simulated_orders, 1)
-        self.assertIn("simulated_order_placed=", stdout.getvalue())
-        self.assertIn("source=live_feeds", stdout.getvalue())
-        self.assertIn("order_submission=disabled", stdout.getvalue())
-        self.assertEqual(records[-2]["event_type"], "SimulatedOrderPlaced")
-        self.assertEqual(records[-2]["payload"]["market_ticker"], "KXBTCD-TEST")
-        self.assertEqual(records[-2]["payload"]["execution"], "simulated_print_only")
-        self.assertEqual(records[-1]["payload"]["simulated_orders"], 1)
+        self.assertEqual(summary.simulated_orders, 0)
+        self.assertNotIn("simulated_order_placed=", stdout.getvalue())
+        self.assertEqual(records[-1]["event_type"], "LiveDataAuditCompleted")
+        self.assertEqual(records[-1]["payload"]["simulated_orders"], 0)
+
+    def test_live_data_audit_prints_simulated_order_when_prior_feed_events_are_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            live_file = Path(tmpdir) / "live-messages.jsonl"
+            audit_db = Path(tmpdir) / "live.sqlite3"
+            live_file.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "source": "coinbase",
+                                "received_timestamp_ms": 1_700_000_010_000,
+                                "message": {
+                                    "channel": "ticker",
+                                    "timestamp_ms": 1_700_000_000_000,
+                                    "events": [
+                                        {
+                                            "type": "update",
+                                            "tickers": [
+                                                {
+                                                    "product_id": "BTC-USD",
+                                                    "price": "100000.00",
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "source": "kalshi",
+                                "received_timestamp_ms": 1_700_000_010_050,
+                                "message": {
+                                    "type": "ticker",
+                                    "seq": 1,
+                                    "msg": {
+                                        "market_ticker": "KXBTCD-TEST",
+                                        "yes_ask_dollars": "0.48",
+                                        "source_timestamp_ms": 1_700_000_000_000,
+                                    },
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stdout = StringIO()
+            summary = run_live_data_audit(
+                config=load_app_config("configs/live.example.toml"),
+                audit_db=audit_db,
+                max_seconds=10,
+                kalshi_market_tickers=("KXBTCD-TEST",),
+                input_file=live_file,
+                stdout=stdout,
+            )
+
+            records = SQLiteAuditStore(audit_db).read_all()
+
+        self.assertGreater(summary.feed_unhealthy_events, 0)
+        self.assertEqual(summary.simulated_orders, 0)
+        self.assertNotIn("simulated_order_placed=", stdout.getvalue())
+        self.assertEqual(records[-1]["event_type"], "LiveDataAuditCompleted")
+        self.assertEqual(records[-1]["payload"]["simulated_orders"], 0)
 
     def test_live_data_audit_tolerates_small_provider_clock_skew(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -525,6 +761,48 @@ allow_order_submission = false
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["source"], "kalshi")
         self.assertIn("message", records[0])
+
+    def test_websocket_collector_delivers_each_record_to_realtime_handler(self) -> None:
+        handled = []
+
+        class FakeWebSocket:
+            def __init__(self) -> None:
+                self.received = 0
+
+            async def __aenter__(self) -> "FakeWebSocket":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def send(self, _message: str) -> None:
+                return None
+
+            async def recv(self) -> str:
+                if self.received:
+                    raise TimeoutError
+                self.received += 1
+                return json.dumps({"channel": "ticker", "events": []})
+
+        class FakeWebSockets:
+            @staticmethod
+            def connect(*_args: object, **_kwargs: object) -> FakeWebSocket:
+                return FakeWebSocket()
+
+        records = asyncio.run(
+            _collect_websocket_messages(
+                websockets_module=FakeWebSockets,
+                url="wss://example.test",
+                source="coinbase",
+                subscription_messages=({"type": "subscribe"},),
+                max_seconds=1,
+                headers=None,
+                on_record=handled.append,
+            )
+        )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(handled, records)
 
     def test_live_data_audit_rejects_real_order_submission_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -45,11 +45,24 @@ Planned outputs:
 
 ## Common Mistakes
 
+- Per-market paper state permits at most two entry legs: one directional first
+  leg and one optional opposite-side second leg. The second leg requires an
+  explicit true-arbitrage or partial-hedge authorization; never authorize a
+  same-side repeat or a third leg.
 - Entry authorization belongs in the Risk Worker, not the Signal Worker or orchestrator. Before any future execution-capable run, `EntryAuthorized` should include side, quantity, price, probability, and confidence after checking signal edge, confidence, fresh executable ask, and depth.
 - Do not use a fixed partial-hedge fraction by default. Solve the smallest integer contract quantity that caps wrong-side loss at the configured target, including fees, slippage, depth, and contract limits.
 - Do not call a partial hedge arbitrage or profit when the original side loses; report it as reduced loss.
 - When max-loss solving needs more contracts than fresh visible depth supports, reject with an explicit unmet-target reason instead of authorizing a smaller hedge that fails the configured cap.
 - If both percent-of-original-risk and absolute USD partial-hedge max-loss limits are configured, use the more conservative lower loss cap.
+- The ten-minute rule blocks only new first entries. It must not stop monitoring
+  a position opened earlier for take profit, true arbitrage, partial hedge, or
+  settlement.
+- When `halt_new_entries_on_feed_unhealthy` is enabled, stale or materially
+  clock-skewed live records must not enter the strategy state. Keep auditing them
+  so the report explains why a run is unsuitable for performance evaluation.
+  Small future timestamp jitter within
+  `circuit_breakers.future_clock_skew_tolerance_ms` is healthy; do not veto an
+  otherwise valid entry for the observed 1,106 ms Kalshi jitter case.
 
 ## Debugging Playbook
 

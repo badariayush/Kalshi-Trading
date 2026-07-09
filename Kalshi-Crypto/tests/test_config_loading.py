@@ -21,6 +21,8 @@ class AppConfigLoadingTests(unittest.TestCase):
         self.assertFalse(config.runtime.allow_trade_mcp)
         self.assertEqual(config.trade_management.min_arb_margin, Decimal("0.0200"))
         self.assertEqual(config.circuit_breakers.data_feed_stale_ms, 2_500)
+        self.assertEqual(config.paper_strategy.underlying_product_id, "BTC-USD")
+        self.assertEqual(config.live_data.coinbase_product_ids, ("BTC-USD",))
         self.assertEqual(config.trade_management.partial_hedge_opposing_ask_trigger, Decimal("0.5000"))
         self.assertEqual(
             config.trade_management.partial_hedge_max_loss_for_original_risk(
@@ -71,6 +73,26 @@ partial_hedge_max_loss_usd = "20.00"
             ),
             Decimal("20.00"),
         )
+
+    def test_rejects_paper_product_missing_from_live_subscription(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "mismatched-product.toml"
+            path.write_text(
+                """
+[runtime]
+mode = "live_data"
+
+[paper_strategy]
+underlying_product_id = "ETH-USD"
+
+[live_data]
+coinbase_product_ids = ["BTC-USD"]
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ConfigError, "paper strategy product"):
+                load_app_config(path)
 
 
 if __name__ == "__main__":

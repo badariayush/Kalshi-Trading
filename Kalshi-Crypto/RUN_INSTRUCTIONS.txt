@@ -14,32 +14,91 @@ Current live-only boundary
 - The report command only accepts audit databases produced by live-data.
 - The live-data command requires an actual Kalshi market ticker and Kalshi
   WebSocket auth environment variables.
-- The program does not submit real orders and does not print simulated fills,
-  sells, or profit. The only simulated action is a terminal/audit line for a
-  would-place order, and only after live Kalshi and live Coinbase data are seen.
+- The program does not submit real orders. It prints strategy-selected simulated
+  entries and testing-only simulated PnL using live Kalshi/Coinbase data.
 
 From the project root
 ---------------------
 cd "/Users/ayushbadari/Documents/GitHub/Kalshi Trading/Kalshi-Crypto"
 
-1. Run automated checks
+1. Create and activate the Python venv
+--------------------------------------
+Run this once:
+
+python3 -m venv kalshi-crypto
+
+Run this every time you open a new Terminal before using the program:
+
+source kalshi-crypto/bin/activate
+
+Install the live-data dependencies inside the venv:
+
+python -m pip install --upgrade pip
+python -m pip install "cryptography>=42.0.0" "websockets>=12.0"
+
+Check that Terminal is using the venv Python:
+
+which python
+
+Expected path:
+/Users/ayushbadari/Documents/GitHub/Kalshi Trading/Kalshi-Crypto/kalshi-crypto/bin/python
+
+2. Run automated checks
 -----------------------
-PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONPATH=src python -m unittest discover -s tests
 
 Stop if this fails.
 
-2. Export Kalshi WebSocket credentials
+3. Export Kalshi WebSocket credentials
 --------------------------------------
 Export these in your shell. Do not save them in any project file.
 
-export KALSHI_KEY_ID="your_key_id"
-export KALSHI_PRIVATE_KEY_PEM='-----BEGIN PRIVATE KEY-----
-...
------END PRIVATE KEY-----'
+Use the same file-path format as the other crypto algorithm:
 
-3. Confirm live-readiness state
+export KALSHI_ENV=prod
+export KALSHI_API_KEY_ID="your_real_key_id"
+export KALSHI_PRIVATE_KEY_PATH="/absolute/path/to/your/kalshi_private_key.pem"
+
+Required credential meaning:
+- KALSHI_API_KEY_ID is the Kalshi API Key ID.
+- KALSHI_PRIVATE_KEY_PATH is the absolute path to the downloaded private key
+  file from Kalshi.
+- KALSHI_ENV=prod is okay to keep for compatibility, but this program uses the
+  URLs in configs/live.example.toml.
+
+The private key file at KALSHI_PRIVATE_KEY_PATH must include one of these
+wrapper formats:
+
+-----BEGIN RSA PRIVATE KEY-----
+...
+-----END RSA PRIVATE KEY-----
+
+or:
+
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+
+Check only the wrapper lines without printing the secret body:
+
+head -n 1 "$KALSHI_PRIVATE_KEY_PATH"
+tail -n 1 "$KALSHI_PRIVATE_KEY_PATH"
+
+Expected wrapper lines:
+-----BEGIN RSA PRIVATE KEY-----
+-----END RSA PRIVATE KEY-----
+
+or:
+-----BEGIN PRIVATE KEY-----
+-----END PRIVATE KEY-----
+
+Compatibility note: KALSHI_KEY_ID and KALSHI_PRIVATE_KEY_PEM are still accepted
+by the code as fallbacks, but the supported run instructions use
+KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH.
+
+4. Confirm live-readiness state
 -------------------------------
-PYTHONPATH=src python3 -m kalshi_crypto.cli doctor-live-data --config configs/live.example.toml
+PYTHONPATH=src python -m kalshi_crypto.cli doctor-live-data --config configs/live.example.toml
 
 Expected lines:
 live_network=enabled
@@ -48,70 +107,119 @@ order_submission=disabled
 kalshi_ws_url=wss://external-api-ws.kalshi.com/trade-api/ws/v2
 coinbase_ws_url=wss://advanced-trade-ws.coinbase.com
 
-4. Run the live-data program for BTC 15m and ETH 15m
-----------------------------------------------------
-The exact Kalshi market tickers change every 15 minutes. Before running, set
-these two variables to the currently open Kalshi BTC 15m and ETH 15m market
-tickers from Kalshi:
+5. Run the auto BTC 15m program
+-------------------------------
+Use this for the day-running workflow. It does not trade the currently active
+Kalshi BTC 15m market. It discovers the next BTC 15m market, waits for it to
+open, prepares the following ticker, and evaluates the live paper strategy.
 
-export BTC_15M_KALSHI_TICKER="replace_with_current_btc_15m_kalshi_market_ticker"
-export ETH_15M_KALSHI_TICKER="replace_with_current_eth_15m_kalshi_market_ticker"
+PYTHONPATH=src python -m kalshi_crypto.cli live-data --config configs/live.example.toml --auto-btc-15m --output-file /private/tmp/kalshi-auto-btc-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-auto-btc-15m-live.sqlite3 --max-seconds 28800 --market-capture-seconds 900
 
-Run BTC 15m only:
+Useful options:
+- --max-seconds 28800 runs for 8 hours.
+- --market-capture-seconds 900 monitors the complete 15-minute market. New
+  entries are allowed only during the first five minutes; an existing position
+  remains monitored for exits or an opposite-side second leg afterward.
+- --max-markets 1 runs only the next market, useful for testing.
 
-PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$BTC_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-btc-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-btc-15m-live.sqlite3 --max-seconds 600
+Safeguards:
+- The active/current BTC 15m market is skipped at startup.
+- A new first entry is blocked once a market has 10 minutes or less to
+  resolution. Positions opened earlier remain managed until exit or settlement.
+- Each market can receive at most two simulated entries total.
+- Leg 1 is one directional YES or NO entry selected by the signal and risk code.
+- Leg 2 is optional, must be the opposite side, and is allowed only when the
+  true-arbitrage or configured partial-hedge logic authorizes it.
+- The program never buys the same side twice in one market.
+- A market can be skipped when the live data does not produce an authorized
+  signal or a feed update is stale/clock-skewed.
+- BTC auto mode uses BTC-USD Coinbase data only; ETH-USD data is not used.
+- Real account order submission remains disabled.
 
-Run ETH 15m only:
+Optional one-market debug run:
 
-PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$ETH_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-eth-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-eth-15m-live.sqlite3 --max-seconds 600
-
-Run BTC 15m and ETH 15m together:
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$BTC_15M_KALSHI_TICKER" --kalshi-market-ticker "$ETH_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-btc-eth-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-btc-eth-15m-live.sqlite3 --max-seconds 600
+export BTC_15M_KALSHI_TICKER="replace_with_current_or_future_btc_15m_kalshi_market_ticker"
+PYTHONPATH=src python -m kalshi_crypto.cli live-data --config configs/live.example.toml --kalshi-market-ticker "$BTC_15M_KALSHI_TICKER" --output-file /private/tmp/kalshi-btc-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-btc-15m-live.sqlite3 --max-seconds 60
 
 Expected lines:
 network=attempted
 execution=not_attempted
 order_submission=disabled
-kalshi_messages greater than 0
-coinbase_messages greater than 0
-feed_unhealthy_events=0
-simulated_orders=1 when a live Kalshi ask and live Coinbase price were both observed
+auto_btc_15m=enabled
+auto_skipped_current_market_ticker=<CURRENT_MARKET_TICKER>
+auto_next_market_ticker=<NEXT_MARKET_TICKER>
+auto_prepared_following_market_ticker=<FOLLOWING_MARKET_TICKER>
+simulated_orders can be 0, 1, or 2 for each market
+simulated_position_closed=<...> after Kalshi posts the resolved result
+simulated_total_pnl=<...> after at least one simulated position is closed
 
 Stop if:
 - the command errors
 - order_submission is enabled
-- kalshi_messages is 0
-- coinbase_messages is 0
-- feed_unhealthy_events is greater than 0
+- markets_run stays 0 after the next market opens
+
+Treat feed_unhealthy_events greater than 0 as a warning that the run should not
+be used to judge strategy performance until the feed-health cause is understood.
 
 If a simulated order can be formed from the live feeds, the terminal prints one
 line like:
 
-simulated_order_placed=market_ticker=<KALSHI_MARKET_TICKER> side=yes price=<LIVE_KALSHI_PRICE> quantity=1 coinbase_product_id=<BTC-USD_OR_ETH-USD> coinbase_price=<LIVE_COINBASE_PRICE> source=live_feeds execution=simulated_print_only order_submission=disabled
+simulated_order_placed=market_ticker=<TICKER> leg=1 reason=directional_entry side=<yes_or_no> price=<SIMULATED_FILL_PRICE> quantity=1 coinbase_product_id=BTC-USD coinbase_price=<LIVE_BTC_PRICE> source=live_feeds execution=simulated_fill_only order_submission=disabled
 
-That line is not a real order, not a fill, and not a profit/loss result.
+An optional second line can appear only for the opposite side:
 
-5. Run the live-data report
+simulated_order_placed=market_ticker=<TICKER> leg=2 reason=<true_arbitrage_or_partial_hedge> side=<opposite_side> price=<SIMULATED_FILL_PRICE> quantity=<SIZE> coinbase_product_id=BTC-USD coinbase_price=<LIVE_BTC_PRICE> source=live_feeds execution=simulated_fill_only order_submission=disabled
+
+No account order is sent. The simulated buy fill uses the live executable ask
+plus the configured slippage buffer and includes the configured Kalshi fee
+model. This is deliberately more conservative than using the displayed ask.
+
+When the live bid reaches the configured take-profit target, the terminal can
+print an immediate mock exit:
+
+simulated_exit_filled=market_ticker=<TICKER> reason=take_profit side=<yes_or_no> price=<SIMULATED_EXIT_PRICE> quantity=<SIZE> realized_pnl=<SIMULATED_PNL> total_fees=<FEES> source=live_feeds execution=simulated_fill_only order_submission=disabled
+
+The simulated sell fill uses the live executable bid minus the slippage buffer.
+
+During testing only, the auto BTC 15m runner also polls Kalshi's public market
+result after resolution. It settles all simulated legs for that market together
+and prints:
+
+simulated_position_closed=market_ticker=<KALSHI_MARKET_TICKER> result=<yes_or_no> realized_pnl=<SIMULATED_PNL> legs=<1_or_2>
+
+This simulated PnL is for algorithm testing only. Remove or replace it before
+real execution is enabled.
+
+6. Run the live-data report
 ---------------------------
-BTC 15m report:
+Auto BTC 15m report:
 
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-btc-15m-live.sqlite3
+PYTHONPATH=src python -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-auto-btc-15m-live.sqlite3
 
-ETH 15m report:
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-eth-15m-live.sqlite3
-
-BTC 15m and ETH 15m combined report:
-
-PYTHONPATH=src python3 -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-btc-eth-15m-live.sqlite3
+The first report against an older, very large audit database may take roughly
+20-30 seconds while a report index is created. Later reports should complete in
+a few seconds. The command now reads only summary/trade events rather than
+loading every raw WebSocket message into memory.
 
 Expected live-data report lines:
-status=no_trades
-feed_unhealthy_events=0
+status=profit, status=loss, or status=flat after simulated positions close
 execution_failures=0
 simulated_orders matches the number of printed simulated_order_placed lines
+closed_positions matches the number of simulated_position_closed lines
+total_realized_pnl equals the summed simulated PnL
+open_positions is the number of entered markets without a recorded close
+win_rate_pct is profitable closed positions divided by all closed positions
+average_realized_pnl is average simulated PnL per closed market
+total_fees is the modeled fee total without double-counting closed trades
 
-The report is expected to show no_trades because this product currently captures
-and audits live market data only. Real account execution, simulated fills, and
-simulated profit/loss are not part of the live-only run surface.
+The report PnL is simulated testing PnL. Real account execution remains disabled.
+
+Data and modeling boundary
+--------------------------
+- Kalshi quotes, market metadata, and final YES/NO results come from live Kalshi
+  endpoints. BTC prices come from the live Coinbase BTC-USD WebSocket.
+- No synthetic prices, generated quotes, or assumed market outcomes are used.
+- Orders and fills are simulated. Fill price, slippage, and fee calculations are
+  therefore a paper model and cannot prove that a real order would have filled.
+- Kalshi's BTC market settlement source is CF Benchmarks RTI, not Coinbase.
+  Coinbase/Kalshi basis risk must be measured before considering real execution.

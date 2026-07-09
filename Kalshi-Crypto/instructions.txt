@@ -1,0 +1,57 @@
+Kalshi Crypto BTC 15m Testing Commands
+======================================
+
+1. Open Terminal and go to the project:
+
+cd "/Users/ayushbadari/Documents/GitHub/Kalshi Trading/Kalshi-Crypto"
+
+2. Activate the venv:
+
+source kalshi-crypto/bin/activate
+
+3. Export Kalshi credentials:
+
+export KALSHI_ENV=prod
+export KALSHI_API_KEY_ID="your_real_key_id"
+export KALSHI_PRIVATE_KEY_PATH="/Users/ayushbadari/Documents/GitHub/Kalshi Trading/key.txt"
+
+4. Run the auto BTC 15m tester:
+
+PYTHONPATH=src python -m kalshi_crypto.cli live-data --config configs/live.example.toml --auto-btc-15m --output-file /private/tmp/kalshi-auto-btc-15m-live-capture.jsonl --audit-db /private/tmp/kalshi-auto-btc-15m-live.sqlite3 --max-seconds 28800 --market-capture-seconds 900
+
+5. Get the report:
+
+PYTHONPATH=src python -m kalshi_crypto.cli report --audit-db /private/tmp/kalshi-auto-btc-15m-live.sqlite3
+
+For a large existing database, allow about 20-30 seconds the first time while
+the report index is created. Later reports should be much faster.
+
+What to look for in the report:
+
+closed_positions=...
+open_positions=...
+total_realized_pnl=...
+win_rate_pct=...
+average_realized_pnl=...
+total_fees=...
+status=profit/loss/flat
+
+What simulated order lines mean:
+
+- leg=1 is one strategy-selected directional YES or NO entry.
+- leg=2 is optional and can only be the opposite side when the strategy's
+  true-arbitrage or partial-hedge rules authorize it.
+- There can never be more than two simulated entries in one market.
+- A market can have no entry when the live signal is not strong enough.
+- BTC auto mode uses live BTC-USD data, not ETH-USD data.
+- New entries stop when 10 minutes remain, but open positions keep being
+  monitored for a take-profit exit or an opposite-side second leg.
+- A simulated entry or exit prints immediately when the live strategy acts.
+
+Notes:
+
+- Real Kalshi order submission is disabled.
+- Market data and final outcomes are live. Orders, fills, and PnL are simulated
+  for testing only; the fill model uses live asks/bids, slippage, and fees.
+- Press Control + C to stop the running program early.
+- --max-seconds 28800 means the run stops automatically after 8 hours.

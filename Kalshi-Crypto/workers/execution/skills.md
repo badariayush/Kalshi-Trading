@@ -47,7 +47,14 @@ Execution must reconcile expected vs actual price, quantity, and fees for every 
 - The `doctor` CLI validates config and safety gates only. It must not place orders, open WebSockets, call REST endpoints, read credentials, or mutate account state.
 - Kalshi auth/order API plumbing can build RSA-PSS header messages and V2 order payloads, and committed configs may keep `order_api.enable_order_api = true` for readiness. They must keep `order_api.allow_order_submission = false`. Any command that flips from request building to order submission requires explicit operator approval and a fresh security/risk review.
 - Buy order request objects must include `client_order_id` and `buy_max_cost`; this preserves idempotency and cost bounds before any future HTTP transport is allowed.
-- Simulated order-fill printing has been removed from the operator-facing product. The current live-only run surface captures and audits market data while keeping `order_submission=disabled`.
+- Live paper testing may print `SimulatedOrderPlaced` entries, but these are
+  strategy-authorized simulated fills, never API submissions. A
+  market permits at most a directional first leg and one opposite-side second
+  leg. Every line must retain `execution=simulated_fill_only` and
+  `order_submission=disabled`.
+- Conservative paper buys use the live executable ask plus configured slippage;
+  paper take-profit sells use the live executable bid minus slippage. Entry and
+  exit fees both belong in realized PnL.
 
 ## Debugging Playbook
 

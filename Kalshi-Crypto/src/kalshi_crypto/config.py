@@ -146,10 +146,15 @@ class TradeManagementConfig:
 @dataclass(frozen=True, slots=True)
 class CircuitBreakerConfig:
     data_feed_stale_ms: int = 2_500
+    future_clock_skew_tolerance_ms: int = 1_500
     halt_new_entries_on_feed_unhealthy: bool = True
 
     def __post_init__(self) -> None:
         _require_positive_int("data_feed_stale_ms", self.data_feed_stale_ms)
+        _require_positive_int(
+            "future_clock_skew_tolerance_ms",
+            self.future_clock_skew_tolerance_ms,
+        )
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "CircuitBreakerConfig":
@@ -165,9 +170,59 @@ class CircuitBreakerConfig:
 
         return cls(
             data_feed_stale_ms=stale_ms,
+            future_clock_skew_tolerance_ms=int(
+                circuit.get("future_clock_skew_tolerance_ms", 1500)
+            ),
             halt_new_entries_on_feed_unhealthy=_bool_value(
                 circuit.get("halt_new_entries_on_feed_unhealthy", True)
             ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PaperStrategyConfig:
+    underlying_product_id: str = "BTC-USD"
+    candle_interval_seconds: int = 5
+    short_ema_period: int = 3
+    long_ema_period: int = 8
+    min_probability_edge: Decimal = Decimal("0.01")
+    min_confidence: Decimal = Decimal("0.05")
+    quantity: int = 1
+
+    def __post_init__(self) -> None:
+        if self.underlying_product_id not in {"BTC-USD", "ETH-USD"}:
+            raise ConfigError("paper strategy product must be BTC-USD or ETH-USD")
+        _require_positive_int("candle_interval_seconds", self.candle_interval_seconds)
+        _require_positive_int("short_ema_period", self.short_ema_period)
+        if self.long_ema_period < self.short_ema_period:
+            raise ConfigError("long_ema_period must be at least short_ema_period")
+        _require_non_negative_decimal(
+            "min_probability_edge", self.min_probability_edge
+        )
+        if self.min_probability_edge >= Decimal("0.50"):
+            raise ConfigError("min_probability_edge must be below 0.50")
+        _require_non_negative_decimal("min_confidence", self.min_confidence)
+        if self.min_confidence > Decimal("1"):
+            raise ConfigError("min_confidence must not exceed 1")
+        _require_positive_int("quantity", self.quantity)
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> "PaperStrategyConfig":
+        paper = data.get("paper_strategy", {})
+        if not isinstance(paper, Mapping):
+            raise ConfigError("paper_strategy config must be a mapping")
+        return cls(
+            underlying_product_id=str(
+                paper.get("underlying_product_id", "BTC-USD")
+            ),
+            candle_interval_seconds=int(paper.get("candle_interval_seconds", 5)),
+            short_ema_period=int(paper.get("short_ema_period", 3)),
+            long_ema_period=int(paper.get("long_ema_period", 8)),
+            min_probability_edge=_decimal(
+                paper.get("min_probability_edge", "0.01")
+            ),
+            min_confidence=_decimal(paper.get("min_confidence", "0.05")),
+            quantity=int(paper.get("quantity", 1)),
         )
 
 
@@ -178,8 +233,19 @@ class AppConfig:
         default_factory=TradeManagementConfig
     )
     circuit_breakers: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
+    paper_strategy: PaperStrategyConfig = field(default_factory=PaperStrategyConfig)
     live_data: LiveDataConfig = field(default_factory=LiveDataConfig)
     order_api: OrderApiConfig = field(default_factory=OrderApiConfig)
+
+    def __post_init__(self) -> None:
+        if (
+            self.paper_strategy.underlying_product_id
+            not in self.live_data.coinbase_product_ids
+        ):
+            raise ConfigError(
+                "paper strategy product must be included in "
+                "live_data.coinbase_product_ids"
+            )
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "AppConfig":
@@ -194,6 +260,7 @@ class AppConfig:
             runtime=RuntimeConfig.from_mapping(data),
             trade_management=TradeManagementConfig.from_mapping(data),
             circuit_breakers=CircuitBreakerConfig.from_mapping(data),
+            paper_strategy=PaperStrategyConfig.from_mapping(data),
             live_data=live_data,
             order_api=order_api,
         )

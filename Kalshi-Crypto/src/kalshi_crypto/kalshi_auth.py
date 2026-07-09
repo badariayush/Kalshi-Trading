@@ -9,17 +9,18 @@ SignatureProvider = Callable[[str], str]
 
 @dataclass(frozen=True, slots=True)
 class KalshiAuthConfig:
-    key_id_env: str = "KALSHI_KEY_ID"
-    private_key_pem_env: str = "KALSHI_PRIVATE_KEY_PEM"
+    key_id_env: str = "KALSHI_API_KEY_ID"
+    private_key_path_env: str = "KALSHI_PRIVATE_KEY_PATH"
+    private_key_pem_env: str | None = None
 
     def __post_init__(self) -> None:
         if not self.key_id_env:
             raise ValueError("key_id_env is required")
-        if not self.private_key_pem_env:
-            raise ValueError("private_key_pem_env is required")
+        if not self.private_key_path_env:
+            raise ValueError("private_key_path_env is required")
 
     def required_env_vars(self) -> tuple[str, str]:
-        return self.key_id_env, self.private_key_pem_env
+        return self.key_id_env, self.private_key_path_env
 
 
 @dataclass(frozen=True, slots=True)

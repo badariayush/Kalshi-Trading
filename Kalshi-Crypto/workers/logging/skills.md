@@ -42,11 +42,28 @@ Required outcome labels:
 
 ## Common Mistakes
 
+- A market with two simulated legs is one position at settlement. Sum both
+  legs' payout, entry cost, and recorded fees into one `PositionClosed` PnL
+  event; do not settle only the latest leg.
 - Audit JSONL must redact sensitive keys before writing, including nested `api_key`, `private_key`, `secret`, `signature`, `password`, and `token` fields. Redaction belongs at the log boundary so shared artifacts are safe by default.
 - SQLite audit storage must use the same redaction path as JSONL before persisting records. Do not store raw event payloads in side columns unless those columns are also redacted.
 - SQLite connections should be explicitly closed after initialization, append, and read operations; transaction context alone is not a connection close.
 - The `report` CLI reads only live-data SQLite audit records. It should flag `ExecutionFailed` as `status=error`, unhealthy feed events as `status=warning`, and healthy live-data captures without execution as `status=no_trades`.
 - The `live-data` CLI should write raw provider-message audit events plus paired `FeedHealthEvaluated` records. It is expected to report `status=no_trades`; that is healthy for live-data audits as long as `feed_unhealthy_events=0` and `execution_failures=0`.
+- A no-order live-data market must leave an explicit `PaperTradeSkipped` audit
+  event and concise `simulated_order_skipped=` terminal line with the strategy
+  skip reason. This prevents silent `simulated_orders=0` runs when feed health,
+  missing books, or signal insufficiency blocks entries.
+- Reports must show open positions, closed positions, win rate, average realized
+  PnL, total realized PnL, and modeled fees. For a closed market, take fees from
+  its `PositionClosed.total_fees`; do not add entry-event fees again.
+- Persist market event ticker, open/close timestamps, and strike on simulated
+  entry events so unresolved positions can be recovered and settled after a
+  restart. A take-profit `PositionClosed` must prevent later settlement closure.
+- Never build operator reports with `SQLiteAuditStore.read_all()`: raw live-feed
+  databases can contain millions of rows and gigabytes of JSON. Use the partial
+  report-event index, the append-only latest sequence, and only completed-run,
+  execution-failure, simulated-order, and position-close records.
 
 ## Debugging Playbook
 

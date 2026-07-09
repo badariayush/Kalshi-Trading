@@ -39,10 +39,22 @@ The output must include feature snapshots and source timestamps so a future revi
 
 ## Common Mistakes
 
+- Live BTC paper signals must use `BTC-USD` records only. Never choose the latest
+  record from a mixed BTC/ETH subscription without matching the underlying.
 - Signal Worker output is informational only: feature snapshots, `probability_yes`, confidence, and skip reasons. It must not decide side, size, entry, partial hedge, true arbitrage, or orders.
 - Do not add non-live signal runs as operator commands. Signal inputs for operator runs must come from live WebSocket capture.
 - Signal v1 computes explainable features from CF Benchmark candles and normalized Kalshi asks: EMA spread, one-candle momentum, realized-volatility proxy, strike distance, and Kalshi yes/no ask cross-check. Treat this as a testable feature path, not a proven trading edge.
+- Signal analysis now includes the requested institutional concepts only where the
+  current live feeds support them: market trend, BOS-style structure breaks,
+  liquidity sweeps, VWAP proxy, volume-profile POC proxy, and signed order-flow
+  delta proxy are derived from live Coinbase/Kalshi candle/book data. DOM ladder,
+  footprint charts, open interest, funding, liquidation maps, and on-chain metrics
+  are recorded as unavailable context until real live providers are configured;
+  do not synthesize those inputs or use stale screenshots/manual assumptions.
 - Stale order book checks should report `stale_orderbook` before lower-priority skip reasons such as insufficient candle count.
+- The current live paper signal samples Coinbase BTC-USD to at most one point per
+  second and recomputes on each healthy Kalshi ticker update. Coinbase is a live
+  directional input, not Kalshi's CF Benchmarks RTI settlement source.
 
 ## Debugging Playbook
 
